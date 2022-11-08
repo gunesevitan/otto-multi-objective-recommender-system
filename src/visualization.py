@@ -1,3 +1,4 @@
+import json
 import logging
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -133,6 +134,41 @@ def visualize_session(df, session, path=None):
         plt.close(fig)
 
 
+def visualize_aid_frequencies(aid_frequencies, title, path=None):
+
+    """
+    Visualize aids and their frequencies in given dictionary
+
+    Parameters
+    ----------
+    aid_frequencies: dict
+        Dictionary of aids and their frequencies
+
+    title: str
+        Title of the plot
+
+    path: path-like str or None
+        Path of the output file or None (if path is None, plot is displayed with selected backend)
+    """
+
+    fig, ax = plt.subplots(figsize=(24, 20), dpi=100)
+    ax.barh(range(len(aid_frequencies)), aid_frequencies.values(), align='center')
+    ax.set_xlabel('')
+    ax.set_ylabel('')
+    ax.set_yticks(range(len(aid_frequencies)))
+    ax.set_yticklabels([f'{x} ({value_count:,})' for x, value_count in aid_frequencies.items()])
+    ax.tick_params(axis='x', labelsize=15, pad=10)
+    ax.tick_params(axis='y', labelsize=15, pad=10)
+    ax.set_title(title, size=20, pad=15)
+    plt.gca().invert_yaxis()
+
+    if path is None:
+        plt.show()
+    else:
+        plt.savefig(path)
+        plt.close(fig)
+
+
 if __name__ == '__main__':
 
     df_train = pd.read_pickle(settings.DATA / 'train.pkl')
@@ -144,8 +180,10 @@ if __name__ == '__main__':
     VISUALIZE_TYPE_DISTRIBUTION = False
     VISUALIZE_SESSION_COUNT_DISTRIBUTION = False
     VISUALIZE_AID_COUNT_DISTRIBUTION = False
+    VISUALIZE_AID_FREQUENCIES = True
 
     if VISUALIZE_TYPE_DISTRIBUTION:
+
         visualize_categorical_feature_distribution(
             df=df_train,
             feature='type',
@@ -181,3 +219,29 @@ if __name__ == '__main__':
             path=settings.EDA / 'aid_count_distribution.png'
         )
         logging.info(f'Saved aid count distribution visualization to {settings.EDA}')
+
+    if VISUALIZE_AID_FREQUENCIES:
+
+        for dataset in ['train', 'test', 'all']:
+
+            with open(settings.DATA / 'statistics' / f'{dataset}_20_most_frequent_aids.json') as f:
+                aid_frequencies = json.load(f)
+
+            visualize_aid_frequencies(
+                aid_frequencies=aid_frequencies,
+                title=f'Top 20 Most Frequent aids in {dataset.capitalize()}',
+                path=settings.EDA / f'{dataset}_top_20_most_frequent_aids.png'
+            )
+            logging.info(f'Saved {dataset}_top_20_most_frequent_aids.png to {settings.EDA}')
+
+            for event_type in ['click', 'cart', 'order']:
+
+                with open(settings.DATA / 'statistics' / f'{dataset}_20_most_frequent_{event_type}_aids.json') as f:
+                    aid_frequencies = json.load(f)
+
+                visualize_aid_frequencies(
+                    aid_frequencies=aid_frequencies,
+                    title=f'Top 20 Most Frequent {event_type.capitalize()} aids in {dataset.capitalize()}',
+                    path=settings.EDA / f'{dataset}_top_20_most_frequent_{event_type}_aids.png'
+                )
+                logging.info(f'Saved {dataset}_top_20_most_frequent_{event_type}_aids.png to {settings.EDA}')
