@@ -8,6 +8,37 @@ def get_model(
         transformer_model_class, transformer_model_args,
         mlp_dimensions,
 ):
+    """
+    Create model with specified parameters
+
+    Parameters
+    ----------
+    schema: merlin_standard_lib.schema.schema.Schema
+        Dataset schema
+
+    max_sequence_length: int
+        Maximum length of sequences
+
+    d_output: int
+        Projection module dimensions
+
+    masking: str
+        Masking type applied input embeddings
+
+    transformer_model_class: str
+        Transformer model class available in transformer module
+
+    transformer_model_args: dict
+        Keyword arguments passed transformer_model_class.build method
+
+    mlp_dimensions: int
+        MLP block dimensions
+
+    Returns
+    -------
+    model: transformers4rec.torch.model.base.Model
+        Created model object
+    """
 
     inputs = tr.TabularSequenceFeatures.from_schema(
         schema,
@@ -16,7 +47,7 @@ def get_model(
         masking=masking,
     )
 
-    transformer_model = getattr(transformer_model_class, transformer)
+    transformer_model = getattr(transformer, transformer_model_class)
     transformer_config = transformer_model.build(**transformer_model_args)
 
     body = tr.SequentialBlock(
