@@ -1,0 +1,33 @@
+dataset:
+  dataset_directory: single_parquet_dataset
+  dataset_size: 1000000
+  test_size: 100000
+
+model:
+  model_checkpoint_path: null
+  embedding_dim: 32
+
+training:
+  training_batch_size: 128
+  validation_batch_size: 128
+  loss_function: BCEWithLogitsLoss
+  loss_args: {}
+  optimizer: SparseAdam
+  optimizer_args:
+    lr: 0.01
+    betas: [0.9, 0.999]
+  lr_scheduler: CosineAnnealingLR
+  lr_scheduler_args:
+    T_max: 300
+    eta_min: 0.000001
+    last_epoch: -1
+  epochs: 250
+  early_stopping_patience: 5
+  random_state: 42
+  deterministic_cudnn: False
+  device: cuda
+
+persistence:
+  visualize_learning_curve: True
+  save_best_model: True
+  save_epoch_model: []
