@@ -13,7 +13,7 @@ def set_seed(seed, deterministic_cudnn=False):
     ----------
     seed: int
         Random seed
-        
+
     deterministic_cudnn: bool
         Whether to set deterministic cuDNN or not
     """
