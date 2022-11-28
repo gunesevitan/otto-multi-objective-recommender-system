@@ -1,9 +1,12 @@
 dataset:
-  dataset_directory: single_parquet_dataset
-  dataset_size: 1000000
-  test_size: 100000
+  pairs: aid
+  load_dataset: False
+  chunk_size: 1000
+  hour_difference: 1
+  target_aggregation: mean
 
 model:
+  model_class: CollaborativeFiltering
   model_checkpoint_path: null
   embedding_dim: 8
 
