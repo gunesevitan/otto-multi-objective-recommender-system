@@ -4,7 +4,7 @@ import pathlib
 import yaml
 from tqdm import tqdm
 import numpy as np
-import polars as pl
+import pandas as pd
 import torch
 import torch.nn
 import torch.optim as optim
@@ -56,18 +56,18 @@ def train(train_loader, model, criterion, optimizer, device, scheduler=None):
 
     for inputs, _ in progress_bar:
 
-        aid1, aid2 = inputs['aid'].to(device), inputs['aid_next'].to(device)
         optimizer.zero_grad()
 
-        # Element-wise multiplication of correct aid pairs are positives and incorrect aid pairs are negatives
-        positive_outputs = model(aid1, aid2)
-        negative_outputs = model(aid1, aid2[torch.randperm(aid2.shape[0])])
+        if isinstance(model, torch_modules.CollaborativeFiltering):
+            # Pass session or aid pairs to collaborative filtering model
+            x1, x2, targets = inputs['x1'].to(device), inputs['x2'].to(device), inputs['target'].to_device()
+            outputs = model(x1, x2)
+            loss = criterion(outputs, targets)
+        elif isinstance(model, torch_modules.MatrixFactorization):
+            # Pass session and aid to matrix factorization model
+            session, aid, type = inputs['session'].to(device), inputs['aid'].to(device), inputs['type'].to(device)
+            outputs = model(session, aid)
 
-        # Concatenate positive/negative outputs and create targets
-        outputs = torch.cat([positive_outputs, negative_outputs])
-        targets = torch.cat([torch.ones_like(positive_outputs), torch.zeros_like(negative_outputs)])
-
-        loss = criterion(outputs, targets)
         loss.backward()
         optimizer.step()
         if scheduler is not None:
@@ -118,13 +118,9 @@ def validate(val_loader, model, criterion, device):
     with torch.no_grad():
         for inputs, _ in progress_bar:
 
-            aid1, aid2 = inputs['aid'].to(device), inputs['aid_next'].to(device)
-
-            # Element-wise multiplication of correct aid pairs are positives and incorrect aid pairs are negatives
-            positive_outputs = model(aid1, aid2)
-            negative_outputs = model(aid1, aid2[torch.randperm(aid2.shape[0])])
-
-            # Concatenate positive/negative outputs and create targets
+            session, aid = inputs['session'].to(device), inputs['aid'].to(device)
+            positive_outputs = model(session, aid)
+            negative_outputs = model(session, aid[torch.randperm(aid.shape[0])])
             outputs = torch.cat([positive_outputs, negative_outputs])
             targets = torch.cat([torch.ones_like(positive_outputs), torch.zeros_like(negative_outputs)])
 
@@ -145,31 +141,109 @@ def validate(val_loader, model, criterion, device):
 
 if __name__ == '__main__':
 
-    config = yaml.load(open(settings.MODELS / 'matrix_factorization' / 'config.yaml', 'r'), Loader=yaml.FullLoader)
+    config = yaml.load(open(settings.MODELS / 'aid_collaborative_filtering' / 'config.yaml', 'r'), Loader=yaml.FullLoader)
 
-    dataset_directory = settings.DATA / config['dataset']['dataset_directory']
-    df = pl.concat((
-        pl.read_parquet(dataset_directory / 'train.parquet'),
-        pl.read_parquet(dataset_directory / 'test.parquet')
-    ))[:config['dataset']['dataset_size']]
-    logging.info(f'Dataset Shape: {df.shape}')
+    df = pd.concat((
+        pd.read_pickle(settings.DATA / 'train.pkl'),
+        pd.read_pickle(settings.DATA / 'test.pkl')
+    ), axis=0, ignore_index=True).loc[:500000]
+    logging.info(f'Dataset Shape: {df.shape} - Memory Usage: {df.memory_usage().sum() / 1024 ** 2:.2f} MB')
 
-    # Create pairs and write train/validation parquet datasets to disk
-    pairs = df.groupby('session').agg([
-        pl.col('aid'),
-        pl.col('aid').shift(-1).alias('aid_next')
-    ]).explode(['aid', 'aid_next']).drop_nulls()[['aid', 'aid_next']]
+    if config['model']['model_class'] == 'CollaborativeFiltering':
 
-    pairs[:-config["dataset"]["test_size"]].to_pandas().to_parquet(dataset_directory / 'train_pairs.parquet')
-    pairs[-config["dataset"]["test_size"]:].to_pandas().to_parquet(dataset_directory / 'val_pairs.parquet')
-    logging.info(f'train_pairs.parquet ({pairs[:-config["dataset"]["test_size"]].shape}) is saved to {dataset_directory}')
-    logging.info(f'val_pairs.parquet ({pairs[-config["dataset"]["test_size"]:].shape}) is saved to {dataset_directory}')
+        # Create directory for datasets
+        dataset_root_directory = pathlib.Path(settings.DATA / 'collaborative_filtering')
+        dataset_root_directory.mkdir(parents=True, exist_ok=True)
+
+        if config['dataset']['pairs'] == 'aid':
+
+            if config['dataset']['load_dataset']:
+                logging.info(f'Using pre-computed dataset from {dataset_root_directory / "aid_pairs.parquet"}')
+                df_aid_pairs = pd.read_parquet(dataset_root_directory / "aid_pairs.parquet")
+            else:
+                # Create a dataset for aid x aid collaborative filtering model
+                df.index = pd.MultiIndex.from_frame(df[['session']])
+                df_aid_pairs = pd.DataFrame(columns=['aid_x', 'aid_y', 'target'], dtype=int)
+                sessions = df['session'].unique()
+                logging.info(f'Creating aid pairs dataset from {len(sessions)} sessions and {df.shape[0]} events')
+
+                for i in tqdm(range(0, sessions.shape[0], config['dataset']['chunk_size'])):
+                    # Index a chunk of sessions
+                    df_sessions = df.loc[sessions[i]:sessions[min(sessions.shape[0] - 1, i + config['dataset']['chunk_size'] - 1)]].reset_index(drop=True)
+                    # Merge groups of sessions with itself for vectorized comparisons
+                    df_aid_pairs_ = df_sessions.merge(df_sessions, on='session')
+                    # Drop same aid pairs
+                    df_aid_pairs_ = df_aid_pairs_.loc[df_aid_pairs_['aid_x'] != df_aid_pairs_['aid_y'], :]
+                    # Calculate hour difference between aid pairs and sample positives/negatives based on the specified condition
+                    df_aid_pairs_['hours_elapsed'] = (df_aid_pairs_['ts_y'] - df_aid_pairs_['ts_x']).dt.seconds / 3600
+                    df_aid_pairs_['target'] = 0
+                    df_aid_pairs_.loc[
+                        (df_aid_pairs_['hours_elapsed'] > 0) & (df_aid_pairs_['hours_elapsed'] <= config['dataset']['hour_difference']),
+                        'target'
+                    ] = 1
+                    df_aid_pairs = pd.concat((
+                        df_aid_pairs,
+                        df_aid_pairs_[['aid_x', 'aid_y', 'target']]
+                    ), axis=0, ignore_index=True)
+
+                df_aid_pairs['aid_x'] = df_aid_pairs['aid_x'].astype(np.uint32)
+                df_aid_pairs['aid_y'] = df_aid_pairs['aid_y'].astype(np.uint32)
+                df_aid_pairs['target'] = df_aid_pairs['target'].astype(np.uint8)
+
+                if config['dataset']['target_aggregation'] == 'mean':
+                    # Assign positive label to aid pairs if their target mean is greater than 0.5
+                    df_aid_pairs = df_aid_pairs.groupby(['aid_x', 'aid_y'])['target'].mean().reset_index()
+                    df_aid_pairs['target'] = (df_aid_pairs['target'] >= 0.5).astype(np.uint8)
+                elif config['dataset']['target_aggregation'] == 'max':
+                    # Assign positive label to aid pairs if their target is positive at least once
+                    df_aid_pairs = df_aid_pairs.groupby(['aid_x', 'aid_y'])['target'].max().reset_index()
+                else:
+                    raise ValueError('Invalid target aggregation')
+
+                df_aid_pairs.rename(columns={'aid_x': 'x1', 'aid_y': 'x2'}, inplace=True)
+                df_aid_pairs.to_parquet(dataset_root_directory / 'aid_pairs.parquet')
+                logging.info(f'aid_pairs.parquet is saved to {dataset_root_directory}')
+
+            del df
+            n_pairs = df_aid_pairs.shape[0]
+            n_aids = max(df_aid_pairs['x1'].max(), df_aid_pairs['x2'].max())
+
+            logging.info(
+                f'''
+                aid pairs dataset - pairs: {n_pairs} aids: {n_aids})
+                {np.sum(df_aid_pairs['target'] == 1)} ({((np.sum(df_aid_pairs['target'] == 1) / n_pairs) * 100):.2f}%) positive aid pairs (hour difference <= {config['dataset']['hour_difference']})
+                {np.sum(df_aid_pairs['target'] == 0)} ({((np.sum(df_aid_pairs['target'] == 0) / n_pairs) * 100):.2f}%) negative aid pairs (hour difference > {config['dataset']['hour_difference']})
+                '''
+            )
+
+        elif config['dataset']['pairs'] == 'session':
+
+            if config['dataset']['load_dataset']:
+                logging.info(f'Using pre-computed dataset from {dataset_root_directory / "session_pairs.parquet"}')
+                df_session_pairs = pd.read_parquet(dataset_root_directory / "session_pairs.parquet")
+            else:
+                # Create a dataset for session x session collaborative filtering model
+                # ?????????????????????????????
+                # sessions with aid intersection > 0.5 are positive?
+                # sessions with events at similar time are positive?
+                # sessions with similar number of events are similar?
+                pass
+
+        else:
+            raise ValueError('Invalid pairs')
+
+    elif config['model']['model_class'] == 'MatrixFactorization':
+        pass
+
+    else:
+        raise ValueError('Invalid model')
+    exit()
 
     # Create training and validation datasets and data loaders
-    train_dataset = Dataset(path_or_source=str(dataset_directory / 'train_pairs.parquet'), engine='parquet')
-    val_dataset = Dataset(path_or_source=str(dataset_directory / 'val_pairs.parquet'), engine='parquet')
+    train_dataset = Dataset(path_or_source=str(dataset_root_directory / 'all.parquet'), engine='parquet')
+    val_dataset = Dataset(path_or_source=str(dataset_root_directory / 'all.parquet'), engine='parquet')
     train_loader = Loader(dataset=train_dataset, batch_size=config['training']['training_batch_size'], shuffle=True, drop_last=False)
-    val_loader = Loader(dataset=val_dataset, batch_size=config['training']['validation_batch_size'], shuffle=False, drop_last=False)
+    val_loader = Loader(dataset=val_dataset, batch_size=config['training']['validation_batch_size'], shuffle=True, drop_last=False)
 
     # Create directory for models and visualizations
     model_root_directory = pathlib.Path(settings.MODELS / 'matrix_factorization')
@@ -181,7 +255,8 @@ if __name__ == '__main__':
     criterion = getattr(torch.nn, config['training']['loss_function'])(**config['training']['loss_args'])
 
     model = torch_modules.MatrixFactorization(
-        n_aids=max(pairs['aid'].max(), pairs['aid_next'].max()) + 1,
+        n_sessions=n_sessions,
+        n_aids=n_aids,
         embedding_dim=config['model']['embedding_dim']
     )
     if config['model']['model_checkpoint_path'] is not None:
