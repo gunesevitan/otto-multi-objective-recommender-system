@@ -1,33 +1,38 @@
 dataset:
-  dataset_directory: single_parquet_dataset
-  dataset_size: 1000000
-  test_size: 100000
+  load_dataset: True
 
 model:
+  model_class: MatrixFactorization
   model_checkpoint_path: null
-  embedding_dim: 8
+  n_sessions: 14571582
+  n_aids: 1855604
+  n_factors: 32
+  sparse: True
+  dropout_probability: 0.
 
 training:
-  training_batch_size: 512
-  validation_batch_size: 1024
+  training_batch_size: 262144
+  validation_batch_size: 262144
+  scores: True
   loss_function: MSELoss
   loss_args: {}
-  optimizer: Adam
+  optimizer: SparseAdam
   optimizer_args:
-    lr: 0.01
+    lr: 0.05
     betas: [0.9, 0.999]
-  lr_scheduler: CosineAnnealingLR
+  lr_scheduler: StepLR
   lr_scheduler_args:
-    T_max: 300
-    eta_min: 0.000001
+    step_size: 5000
+    gamma: 0.5
     last_epoch: -1
   epochs: 250
-  early_stopping_patience: 5
+  early_stopping_patience: 20
   random_state: 42
   deterministic_cudnn: False
   device: cuda
 
 persistence:
+  model_directory: matrix_factorization
   visualize_learning_curve: True
   save_best_model: True
   save_epoch_model: []
