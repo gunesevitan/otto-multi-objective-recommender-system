@@ -1,36 +1,41 @@
 dataset:
-  pairs: aid
-  load_dataset: False
-  chunk_size: 1000
+  sampling_strategy: diff
+  load_dataset: True
+  chunk_size: 30000
   hour_difference: 1
   target_aggregation: mean
 
 model:
   model_class: CollaborativeFiltering
   model_checkpoint_path: null
-  embedding_dim: 8
+  n_embeddings: 1855603
+  n_factors: 32
+  sparse: True
+  dropout_probability: 0.
 
 training:
-  training_batch_size: 512
-  validation_batch_size: 1024
-  loss_function: MSELoss
+  training_batch_size: 262144
+  validation_batch_size: 262144
+  scores: True
+  loss_function: BCEWithLogitsLoss
   loss_args: {}
-  optimizer: Adam
+  optimizer: SparseAdam
   optimizer_args:
-    lr: 0.01
+    lr: 0.0005
     betas: [0.9, 0.999]
-  lr_scheduler: CosineAnnealingLR
+  lr_scheduler: StepLR
   lr_scheduler_args:
-    T_max: 300
-    eta_min: 0.000001
+    step_size: 7500
+    gamma: 0.5
     last_epoch: -1
   epochs: 250
-  early_stopping_patience: 5
+  early_stopping_patience: 20
   random_state: 42
   deterministic_cudnn: False
   device: cuda
 
 persistence:
+  model_directory: aid_collaborative_filtering
   visualize_learning_curve: True
   save_best_model: True
   save_epoch_model: []
