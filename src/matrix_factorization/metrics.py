@@ -1,5 +1,5 @@
 import numpy as np
-from sklearn.metrics import accuracy_score, roc_auc_score
+from sklearn.metrics import accuracy_score, roc_auc_score, mean_absolute_error, mean_squared_error
 
 
 def round_probabilities(probabilities, threshold):
@@ -52,7 +52,34 @@ def classification_scores(y_true, y_pred, threshold=0.5):
     y_pred_labels = round_probabilities(y_pred, threshold=threshold)
     scores = {
         'accuracy': accuracy_score(y_true, y_pred_labels),
-        'roc_auc': roc_auc_score(y_true, y_pred),
+        'roc_auc': roc_auc_score(y_true, y_pred)
+    }
+
+    return scores
+
+
+def regression_scores(y_true, y_pred):
+
+    """
+    Calculate regression metrics on predictions and labels
+
+    Parameters
+    ----------
+    y_true: numpy.ndarray of shape (n_samples)
+        Ground-truth labels
+
+    y_pred: numpy.ndarray of shape (n_samples)
+        Predictions
+
+    Returns
+    -------
+    scores: dict
+        Dictionary of regression scores
+    """
+
+    scores = {
+        'mean_absolute_error': mean_absolute_error(y_true, y_pred),
+        'mean_squared_error': mean_squared_error(y_true, y_pred)
     }
 
     return scores
