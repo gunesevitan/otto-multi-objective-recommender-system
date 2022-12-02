@@ -56,4 +56,4 @@ if __name__ == '__main__':
             })
 
     df_submission = pd.DataFrame(submission)
-    df_submission.to_csv(submissions_directory / 'aid_frequency_submission.csv', index=False)
+    df_submission.to_csv(submissions_directory / 'aid_frequency_submission.csv.gz', index=False, compression='gzip')
