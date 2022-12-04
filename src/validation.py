@@ -61,12 +61,12 @@ if __name__ == '__main__':
     df_train_sessions = df_train.loc[df_train['session'] >= 11098528]
     df_train_sessions = df_train_sessions.groupby('session')[['aid', 'type']].agg(list).reset_index()
 
-    df_train_sessions['ground_truth_clicks'] = np.nan
-    df_train_sessions['ground_truth_clicks'] = df_train_sessions['ground_truth_clicks'].astype(object)
-    df_train_sessions['ground_truth_carts'] = np.nan
-    df_train_sessions['ground_truth_carts'] = df_train_sessions['ground_truth_carts'].astype(object)
-    df_train_sessions['ground_truth_orders'] = np.nan
-    df_train_sessions['ground_truth_orders'] = df_train_sessions['ground_truth_orders'].astype(object)
+    df_train_sessions['click_labels'] = np.nan
+    df_train_sessions['click_labels'] = df_train_sessions['click_labels'].astype(object)
+    df_train_sessions['cart_labels'] = np.nan
+    df_train_sessions['cart_labels'] = df_train_sessions['cart_labels'].astype(object)
+    df_train_sessions['order_labels'] = np.nan
+    df_train_sessions['order_labels'] = df_train_sessions['order_labels'].astype(object)
 
     for idx, row in tqdm(df_train_sessions.iterrows(), total=df_train_sessions.shape[0]):
 
@@ -85,10 +85,11 @@ if __name__ == '__main__':
         df_train_sessions.at[idx, 'session_cutoff_idx'] = session_cutoff_idx
 
         session_labels = get_labels(aids=row['aid'], event_types=row['type'])[session_cutoff_idx]
-        df_train_sessions.at[idx, 'ground_truth_clicks'] = session_labels[0]
-        df_train_sessions.at[idx, 'ground_truth_carts'] = session_labels[1]
-        df_train_sessions.at[idx, 'ground_truth_orders'] = session_labels[2]
+        df_train_sessions.at[idx, 'click_labels'] = session_labels[0]
+        df_train_sessions.at[idx, 'cart_labels'] = session_labels[1]
+        df_train_sessions.at[idx, 'order_labels'] = session_labels[2]
 
     df_train_sessions = df_train_sessions.fillna(df_train_sessions.notna().applymap(lambda x: x or []))
+    df_train_sessions['session_cutoff_idx'] = df_train_sessions['session_cutoff_idx'].astype(int)
     df_train_sessions.to_pickle(settings.DATA / 'train_labels.pkl')
     logging.info(f'Saved train_labels.pkl to {settings.DATA}')
