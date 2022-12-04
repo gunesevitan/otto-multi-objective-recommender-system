@@ -89,5 +89,6 @@ if __name__ == '__main__':
         df_train_sessions.at[idx, 'ground_truth_carts'] = session_labels[1]
         df_train_sessions.at[idx, 'ground_truth_orders'] = session_labels[2]
 
+    df_train_sessions = df_train_sessions.fillna(df_train_sessions.notna().applymap(lambda x: x or []))
     df_train_sessions.to_pickle(settings.DATA / 'train_labels.pkl')
     logging.info(f'Saved train_labels.pkl to {settings.DATA}')
