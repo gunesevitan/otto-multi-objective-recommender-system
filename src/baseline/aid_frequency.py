@@ -90,7 +90,7 @@ if __name__ == '__main__':
         # Create a dictionary of session id keys and list of top 20 most frequent aid values
         df_test_session_aid_frequencies = df_test_session_aid_frequencies.groupby('session')['aid'].agg(lambda x: list(x)[:20]).to_dict()
 
-        submission = []
+        test_predictions = []
 
         for session_id, aids in tqdm(df_test_session_aid_frequencies.items()):
 
@@ -99,17 +99,17 @@ if __name__ == '__main__':
                 predictions = aids.copy()
 
                 if event_type == 'click':
-                    predictions += list(all_20_most_frequent_click_aids.keys())[:20 - len(aids)]
+                    predictions += all_20_most_frequent_click_aids[:20 - len(aids)]
                 elif event_type == 'cart':
-                    predictions += list(all_20_most_frequent_cart_aids.keys())[:20 - len(aids)]
+                    predictions += all_20_most_frequent_cart_aids[:20 - len(aids)]
                 elif event_type == 'order':
-                    predictions += list(all_20_most_frequent_order_aids.keys())[:20 - len(aids)]
+                    predictions += all_20_most_frequent_order_aids[:20 - len(aids)]
 
                 predictions = ' '.join([str(aid) for aid in predictions])
-                submission.append({
+                test_predictions.append({
                     'session_type': f'{session_id}_{event_type}s',
                     'labels': predictions
                 })
 
-        df_submission = pd.DataFrame(submission)
-        df_submission.to_csv(submissions_directory / 'aid_frequency_submission.csv.gz', index=False, compression='gzip')
+        df_test_predictions = pd.DataFrame(test_predictions)
+        df_test_predictions.to_csv(submissions_directory / 'aid_frequency_submission.csv.gz', index=False, compression='gzip')
