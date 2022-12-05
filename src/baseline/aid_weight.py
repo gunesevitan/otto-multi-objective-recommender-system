@@ -79,7 +79,7 @@ if __name__ == '__main__':
         submissions_directory = pathlib.Path(settings.DATA / 'submissions')
         submissions_directory.mkdir(parents=True, exist_ok=True)
 
-        event_type_coefficient = {0: 1, 1: 6, 2: 3}
+        event_type_coefficient = {0: 1, 1: 3, 2: 6}
         df_test = df_test.groupby('session')[['aid', 'type']].agg(list).reset_index()
         test_predictions = []
 
@@ -104,3 +104,6 @@ if __name__ == '__main__':
 
         df_test_predictions = pd.DataFrame(test_predictions)
         df_test_predictions.to_csv(submissions_directory / 'aid_weight_submission.csv.gz', index=False, compression='gzip')
+
+    else:
+        raise ValueError('Invalid mode')

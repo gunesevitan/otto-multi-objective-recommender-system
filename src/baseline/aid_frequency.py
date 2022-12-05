@@ -113,3 +113,6 @@ if __name__ == '__main__':
 
         df_test_predictions = pd.DataFrame(test_predictions)
         df_test_predictions.to_csv(submissions_directory / 'aid_frequency_submission.csv.gz', index=False, compression='gzip')
+
+    else:
+        raise ValueError('Invalid mode')
