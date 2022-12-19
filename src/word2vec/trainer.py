@@ -46,3 +46,6 @@ if __name__ == '__main__':
         model = fasttext.train_unsupervised(input=str(settings.DATA / 'word2vec' / 'sentences.txt'), **config['model']['model_args'])
         model.save_model(str(model_root_directory / 'fasttext.bin'))
         logging.info(f'FastText model finished training and saved to {model_root_directory}')
+
+    else:
+        raise ValueError('Invalid model_class')
