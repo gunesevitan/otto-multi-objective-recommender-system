@@ -24,7 +24,7 @@ if __name__ == '__main__':
     model_root_directory = pathlib.Path(settings.MODELS / config['persistence']['model_directory'])
     model_root_directory.mkdir(parents=True, exist_ok=True)
 
-    if config['model']['model_class'] == 'Word2Vec':
+    if config['model']['model_name'] == 'Word2Vec':
 
         # Create list of sessions as sentences
         df = pd.concat((
@@ -41,11 +41,11 @@ if __name__ == '__main__':
         model.save(str(model_root_directory / 'word2vec.model'))
         logging.info(f'Word2vec model finished training and saved to {model_root_directory}')
 
-    elif config['model']['model_class'] == 'FastText':
+    elif config['model']['model_name'] == 'FastText':
 
         model = fasttext.train_unsupervised(input=str(settings.DATA / 'word2vec' / 'sentences.txt'), **config['model']['model_args'])
         model.save_model(str(model_root_directory / 'fasttext.bin'))
         logging.info(f'FastText model finished training and saved to {model_root_directory}')
 
     else:
-        raise ValueError('Invalid model_class')
+        raise ValueError('Invalid model_name')
