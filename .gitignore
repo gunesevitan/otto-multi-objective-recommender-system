@@ -1,0 +1,10 @@
+data/
+venv/
+models/*.pt
+models/*.pth
+models/*.bin
+models/*.model
+models/*.npy
+.idea/
+*.pyc
+*.log
