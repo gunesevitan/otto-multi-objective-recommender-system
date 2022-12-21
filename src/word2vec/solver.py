@@ -112,7 +112,6 @@ if __name__ == '__main__':
                 df_train_labels.at[idx, 'order_predictions'] = order_predictions
 
             else:
-
                 if config['model']['model_name'] == 'Word2Vec':
                     nearest_neighbors = [
                         model.wv.index_to_key[idx] for idx in annoy_index.get_nns_by_item(
@@ -122,13 +121,33 @@ if __name__ == '__main__':
                         )[1:]
                     ]
                 elif config['model']['model_name'] == 'FastText':
-                    nearest_neighbors = [
-                        idx_aid[idx] for idx in annoy_index.get_nns_by_item(
-                            i=aid_idx[session_aids[-1]],
-                            n=21,
-                            search_k=-1
-                        )[1:]
-                    ]
+                    if config['nns']['recursive_nns']:
+                        # Select 20 nearest neighbors recursively
+                        nearest_neighbors = []
+                        current_aid = session_aids[-1]
+                        for i in range(20 - len(session_unique_aids)):
+                            next_aids = nearest_neighbors = [
+                                idx_aid[idx] for idx in annoy_index.get_nns_by_item(
+                                    i=aid_idx[session_aids[-1]],
+                                    n=i + 2,
+                                    search_k=-1
+                                )[1:]
+                            ]
+                            for next_aid in next_aids:
+                                if next_aid in (nearest_neighbors + session_unique_aids):
+                                    continue
+                                else:
+                                    nearest_neighbors.append(next_aid)
+                                    current_aid = next_aid
+                    else:
+                        # Select 20 nearest neighbors of the last session aid
+                        nearest_neighbors = [
+                            idx_aid[idx] for idx in annoy_index.get_nns_by_item(
+                                i=aid_idx[session_aids[-1]],
+                                n=21,
+                                search_k=-1
+                            )[1:]
+                        ]
                 else:
                     raise ValueError('Invalid model_name')
 
@@ -200,7 +219,6 @@ if __name__ == '__main__':
                 order_predictions = sorted_cart_and_order_aids
 
             else:
-
                 if config['model']['model_name'] == 'Word2Vec':
                     nearest_neighbors = [
                         model.wv.index_to_key[idx] for idx in annoy_index.get_nns_by_item(
@@ -210,13 +228,34 @@ if __name__ == '__main__':
                         )[1:]
                     ]
                 elif config['model']['model_name'] == 'FastText':
-                    nearest_neighbors = [
-                        idx_aid[idx] for idx in annoy_index.get_nns_by_item(
-                            i=aid_idx[session_aids[-1]],
-                            n=21,
-                            search_k=-1
-                        )[1:]
-                    ]
+                    if config['nns']['recursive_nns']:
+                        # Select 20 nearest neighbors recursively
+                        nearest_neighbors = []
+                        current_aid = session_aids[-1]
+
+                        for i in range(20 - len(session_unique_aids)):
+                            next_aids = nearest_neighbors = [
+                                idx_aid[idx] for idx in annoy_index.get_nns_by_item(
+                                    i=aid_idx[session_aids[-1]],
+                                    n=i + 2,
+                                    search_k=-1
+                                )[1:]
+                            ]
+                            for next_aid in next_aids:
+                                if next_aid in (nearest_neighbors + session_unique_aids):
+                                    continue
+                                else:
+                                    nearest_neighbors.append(next_aid)
+                                    current_aid = next_aid
+                    else:
+                        # Select 20 nearest neighbors of the last session aid
+                        nearest_neighbors = [
+                            idx_aid[idx] for idx in annoy_index.get_nns_by_item(
+                                i=aid_idx[session_aids[-1]],
+                                n=21,
+                                search_k=-1
+                            )[1:]
+                        ]
                 else:
                     raise ValueError('Invalid model_name')
 
