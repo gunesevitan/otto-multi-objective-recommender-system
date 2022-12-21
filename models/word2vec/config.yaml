@@ -1,0 +1,32 @@
+model:
+  model_name: Word2Vec
+  model_args:
+    vector_size: 32
+    alpha: 0.025
+    window: 12
+    min_count: 1
+    max_vocab_size: 1855603
+    sample: 0.003
+    seed: 42
+    workers: 32
+    min_alpha: 0.0001
+    sg: 1
+    hs: 1
+    negative: 40
+    ns_exponent: 0.75
+    cbow_mean: 1
+    epochs: 5
+    null_word: 0
+    trim_rule: null
+    sorted_vocab: 1
+    compute_loss: True
+    shrink_windows: True
+
+nns:
+  nns_name: annoy
+  metric: euclidean
+  n_trees: 20
+  n_jobs: -1
+
+persistence:
+  model_directory: word2vec
