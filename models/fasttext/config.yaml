@@ -1,0 +1,29 @@
+model:
+  model_name: FastText
+  model_args:
+    model: skipgram
+    lr: 0.05
+    dim: 32
+    ws: 10
+    epoch: 5
+    minCount: 1
+    minn: 0
+    maxn: 0
+    neg: 40
+    wordNgrams: 1
+    loss: ns
+    bucket: 2000000
+    thread: 32
+    lrUpdateRate: 100
+    t: 0.0001
+    verbose: 2
+
+nns:
+  recursive_nns: False
+  nns_name: annoy
+  metric: euclidean
+  n_trees: 100
+  n_jobs: -1
+
+persistence:
+  model_directory: fasttext
