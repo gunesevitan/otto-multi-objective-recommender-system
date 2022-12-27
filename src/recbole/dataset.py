@@ -17,7 +17,7 @@ if __name__ == '__main__':
         pd.read_pickle(settings.DATA / 'train.pkl'),
         pd.read_pickle(settings.DATA / 'test.pkl')
     ), axis=0, ignore_index=True)
-    df = df.loc[df['session'] >= TEST_SESSION_CUTOFF - 0]
+    df = df.loc[df['session'] >= TEST_SESSION_CUTOFF - 1_500_000]
     logging.info(f'Dataset Shape: {df.shape} - Memory Usage: {df.memory_usage().sum() / 1024 ** 2:.2f} MB')
 
     df['ts'] = df['ts'].view(int)
