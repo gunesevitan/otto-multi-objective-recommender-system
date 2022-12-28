@@ -5,7 +5,7 @@ import pathlib
 import yaml
 import pandas as pd
 import polars as pl
-from gensim.models import Word2Vec
+from gensim.models import Word2Vec, Doc2Vec
 import fasttext
 
 sys.path.append('..')
