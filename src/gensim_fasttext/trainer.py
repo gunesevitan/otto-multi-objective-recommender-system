@@ -5,7 +5,8 @@ import pathlib
 import yaml
 import pandas as pd
 import polars as pl
-from gensim.models import Word2Vec, Doc2Vec
+from gensim.models.word2vec import Word2Vec
+from gensim.models.doc2vec import Doc2Vec, TaggedDocument
 import fasttext
 
 sys.path.append('..')
@@ -40,6 +41,24 @@ if __name__ == '__main__':
         model = Word2Vec(sentences=sentences, **config['model']['model_args'])
         model.save(str(model_root_directory / 'word2vec.model'))
         logging.info(f'Word2vec model finished training and saved to {model_root_directory}')
+
+    elif config['model']['model_name'] == 'Doc2Vec':
+
+        # Create list of sessions as documents
+        df = pd.concat((
+            pd.read_pickle(settings.DATA / 'train.pkl'),
+            pd.read_pickle(settings.DATA / 'test.pkl')
+        ), axis=0, ignore_index=True)
+        logging.info(f'Dataset Shape: {df.shape} - Memory Usage: {df.memory_usage().sum() / 1024 ** 2:.2f} MB')
+        documents = pl.DataFrame(df).groupby('session').agg(pl.col('aid').alias('sentence'))['sentence'].to_list()
+        documents = [TaggedDocument(document, [document_idx]) for document_idx, document in enumerate(documents)]
+        del df
+        n_documents = len(documents)
+        logging.info(f'Documents Dataset - documents: {n_documents}')
+
+        model = Doc2Vec(documents=documents, **config['model']['model_args'])
+        model.save(str(model_root_directory / 'doc2vec.model'))
+        logging.info(f'Doc2vec model finished training and saved to {model_root_directory}')
 
     elif config['model']['model_name'] == 'FastText':
 
