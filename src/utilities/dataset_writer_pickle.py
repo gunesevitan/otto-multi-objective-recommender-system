@@ -56,7 +56,7 @@ def create_dataframe(json_file_path, chunk_size):
         chunk_session = pd.DataFrame(event_dict)
         chunk_session['session'] = chunk_session['session'].astype(np.uint32)
         chunk_session['aid'] = chunk_session['aid'].astype(np.uint32)
-        chunk_session['ts'] = pd.to_datetime(chunk_session['ts'], unit='ms')
+        chunk_session['ts'] = chunk_session['ts'].astype(np.uint64)
         chunk_session['type'] = chunk_session['type'].astype(np.uint8)
         df = pd.concat([df, chunk_session])
 
