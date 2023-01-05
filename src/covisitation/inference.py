@@ -42,13 +42,13 @@ if __name__ == '__main__':
     frequency_directory = pathlib.Path(settings.DATA / 'aid_frequencies')
 
     with open(settings.DATA / frequency_directory / 'all_20_most_frequent_click_aids.json') as f:
-        all_20_most_frequent_click_aids = list(json.load(f).keys())
+        most_frequent_click_aids = list(json.load(f).keys())
 
     with open(settings.DATA / frequency_directory / 'all_20_most_frequent_cart_aids.json') as f:
-        all_20_most_frequent_cart_aids = list(json.load(f).keys())
+        most_frequent_cart_aids = list(json.load(f).keys())
 
     with open(settings.DATA / frequency_directory / 'all_20_most_frequent_order_aids.json') as f:
-        all_20_most_frequent_order_aids = list(json.load(f).keys())
+        most_frequent_order_aids = list(json.load(f).keys())
 
     logging.info(f'Loaded top 20 most frequent aids from entire dataset for clicks, orders and carts')
 
@@ -65,6 +65,7 @@ if __name__ == '__main__':
     top_buy2buy = covisitation_df_to_dict(pd.read_parquet(str(covisitation_directory / 'top_20_buy2buy_0.pqt')))
 
     logging.info(f'Loaded top covisitation statistics from entire dataset for clicks, orders and carts')
+    event_type_coefficient = {0: 0.5, 1: 9, 2: 0.5}
 
     if args.mode == 'validation':
 
@@ -91,13 +92,12 @@ if __name__ == '__main__':
         df_train_labels['order_predictions'] = np.nan
         df_train_labels['order_predictions'] = df_train_labels['order_predictions'].astype(object)
 
-        event_type_coefficient = {0: 0.5, 1: 9, 2: 0.5}
         recency_weight_predictions_idx = df_train_labels['prediction_type'] == 'recency_weight'
         for idx, row in tqdm(df_train_labels.loc[recency_weight_predictions_idx].iterrows(), total=df_train_labels.loc[recency_weight_predictions_idx].shape[0]):
 
             session_aids = row['aid']
             session_event_types = row['type']
-            session_unique_aids = list(np.unique(session_aids))
+            session_unique_aids = list(dict.fromkeys(session_aids[::-1]))
             session_unique_click_and_cart_aids = np.unique(np.array(session_aids)[np.array(session_event_types) <= 1]).tolist()
             session_unique_cart_and_order_aids = np.unique(np.array(session_aids)[np.array(session_event_types) >= 1]).tolist()
 
@@ -105,9 +105,9 @@ if __name__ == '__main__':
             click_recency_weights = np.logspace(0.1, 1, len(session_aids), base=2, endpoint=True) - 1
             cart_recency_weights = np.logspace(0.5, 1, len(session_aids), base=2, endpoint=True) - 1
             order_recency_weights = np.logspace(0.5, 1, len(session_aids), base=2, endpoint=True) - 1
-            session_aid_click_weights = defaultdict(lambda: 0)
-            session_aid_cart_weights = defaultdict(lambda: 0)
-            session_aid_order_weights = defaultdict(lambda: 0)
+            session_aid_click_weights = Counter()
+            session_aid_cart_weights = Counter()
+            session_aid_order_weights = Counter()
 
             for aid, event_type, click_recency_weight, cart_recency_weight, order_recency_weight in zip(session_aids, session_event_types, click_recency_weights, cart_recency_weights, order_recency_weights):
                 session_aid_click_weights[aid] += (click_recency_weight * event_type_coefficient[event_type])
@@ -115,31 +115,31 @@ if __name__ == '__main__':
                 session_aid_order_weights[aid] += (order_recency_weight * event_type_coefficient[event_type])
 
             # Sort click aids by their weights in descending order
-            sorted_click_aids = [aid for aid, weight in sorted(session_aid_click_weights.items(), key=lambda item: -item[1])][:20]
+            sorted_click_aids = [aid for aid, weight in session_aid_click_weights.most_common(20)]
 
             # Concatenate all covisited click and cart aids and increase cart weights based on covisitation
             covisited_click_and_cart_aids = list(itertools.chain(*[top_buys[aid] for aid in session_unique_click_and_cart_aids if aid in top_buys]))
             for aid in covisited_click_and_cart_aids:
-                session_aid_cart_weights[aid] += 0.1
+                session_aid_cart_weights[aid] += 0.25
 
             # Sort cart aids by their weights in descending order
-            sorted_cart_aids = [aid for aid, weight in sorted(session_aid_cart_weights.items(), key=lambda item: -item[1])][:20]
+            sorted_cart_aids = [aid for aid, weight in session_aid_cart_weights.most_common(20)]
 
             # Concatenate all covisited cart and order aids and increase order weights based on covisitation
             covisited_cart_and_order_aids = list(itertools.chain(*[top_buy2buy[aid] for aid in session_unique_cart_and_order_aids if aid in top_buy2buy]))
             for aid in covisited_cart_and_order_aids:
-                session_aid_order_weights[aid] += 0.1
+                session_aid_order_weights[aid] += 0.50
 
             # Sort order aids by their weights in descending order
-            sorted_order_aids = [aid for aid, weight in sorted(session_aid_order_weights.items(), key=lambda item: -item[1])][:20]
+            sorted_order_aids = [aid for aid, weight in session_aid_order_weights.most_common(20)]
 
-            click_predictions = sorted_click_aids + [aid for aid in all_20_most_frequent_click_aids if aid not  in sorted_click_aids][:20 - len(sorted_click_aids)]
-            cart_predictions = sorted_cart_aids + [aid for aid in all_20_most_frequent_cart_aids if aid not in sorted_cart_aids][:20 - len(sorted_cart_aids)]
-            order_predictions = sorted_order_aids + [aid for aid in all_20_most_frequent_order_aids if aid not in sorted_order_aids][:20 - len(sorted_order_aids)]
+            click_predictions = sorted_click_aids
+            cart_predictions = sorted_cart_aids
+            order_predictions = sorted_order_aids
 
-            df_train_labels.at[idx, 'click_predictions'] = click_predictions[:20]
-            df_train_labels.at[idx, 'cart_predictions'] = sorted_cart_aids[:20]
-            df_train_labels.at[idx, 'order_predictions'] = sorted_order_aids[:20]
+            df_train_labels.at[idx, 'click_predictions'] = click_predictions
+            df_train_labels.at[idx, 'cart_predictions'] = sorted_cart_aids
+            df_train_labels.at[idx, 'order_predictions'] = sorted_order_aids
 
         logging.info(f'{recency_weight_predictions_idx.sum()} sessions are predicted with recency weight')
 
@@ -148,7 +148,7 @@ if __name__ == '__main__':
 
             session_aids = row['aid']
             session_event_types = row['type']
-            session_unique_aids = list(np.unique(session_aids))
+            session_unique_aids = list(dict.fromkeys(session_aids[::-1]))
             session_unique_click_and_cart_aids = np.unique(np.array(session_aids)[np.array(session_event_types) <= 1]).tolist()
             session_unique_cart_and_order_aids = np.unique(np.array(session_aids)[np.array(session_event_types) >= 1]).tolist()
 
@@ -166,12 +166,12 @@ if __name__ == '__main__':
             covisited_cart_and_order_aids += list(itertools.chain(*[top_buy2buy[aid] for aid in session_unique_cart_and_order_aids if aid in top_buy2buy]))
             sorted_order_aids = [aid for aid, count in Counter(covisited_cart_and_order_aids).most_common(20) if aid not in session_unique_aids]
 
-            click_predictions = session_unique_aids + sorted_click_aids[:20 - len(session_unique_aids)]
-            click_predictions = click_predictions + all_20_most_frequent_click_aids[:20 - len(click_predictions)]
-            cart_predictions = session_unique_aids + sorted_cart_aids[:20 - len(session_unique_aids)]
-            cart_predictions = cart_predictions + all_20_most_frequent_cart_aids[:20 - len(cart_predictions)]
-            order_predictions = session_unique_aids + sorted_order_aids[:20 - len(session_unique_aids)]
-            order_predictions = order_predictions + all_20_most_frequent_order_aids[:20 - len(order_predictions)]
+            click_predictions = session_unique_aids + sorted_click_aids
+            click_predictions = click_predictions + most_frequent_click_aids[:20 - len(click_predictions)]
+            cart_predictions = session_unique_aids + sorted_cart_aids
+            cart_predictions = cart_predictions + most_frequent_cart_aids[:20 - len(cart_predictions)]
+            order_predictions = session_unique_aids + sorted_order_aids
+            order_predictions = order_predictions + most_frequent_cart_aids[:20 - len(order_predictions)]
 
             df_train_labels.at[idx, 'click_predictions'] = click_predictions
             df_train_labels.at[idx, 'cart_predictions'] = cart_predictions
@@ -226,7 +226,7 @@ if __name__ == '__main__':
 
             session_aids = row['aid']
             session_event_types = row['type']
-            session_unique_aids = list(np.unique(session_aids))
+            session_unique_aids = list(dict.fromkeys(session_aids[::-1]))
             session_unique_click_and_cart_aids = np.unique(np.array(session_aids)[np.array(session_event_types) <= 1]).tolist()
             session_unique_cart_and_order_aids = np.unique(np.array(session_aids)[np.array(session_event_types) >= 1]).tolist()
 
@@ -234,9 +234,9 @@ if __name__ == '__main__':
             click_recency_weights = np.logspace(0.1, 1, len(session_aids), base=2, endpoint=True) - 1
             cart_recency_weights = np.logspace(0.5, 1, len(session_aids), base=2, endpoint=True) - 1
             order_recency_weights = np.logspace(0.5, 1, len(session_aids), base=2, endpoint=True) - 1
-            session_aid_click_weights = defaultdict(lambda: 0)
-            session_aid_cart_weights = defaultdict(lambda: 0)
-            session_aid_order_weights = defaultdict(lambda: 0)
+            session_aid_click_weights = Counter()
+            session_aid_cart_weights = Counter()
+            session_aid_order_weights = Counter()
 
             for aid, event_type, click_recency_weight, cart_recency_weight, order_recency_weight in zip(session_aids, session_event_types, click_recency_weights, cart_recency_weights, order_recency_weights):
                 session_aid_click_weights[aid] += (click_recency_weight * event_type_coefficient[event_type])
@@ -244,7 +244,7 @@ if __name__ == '__main__':
                 session_aid_order_weights[aid] += (order_recency_weight * event_type_coefficient[event_type])
 
             # Sort click aids by their weights in descending order
-            sorted_click_aids = [aid for aid, weight in sorted(session_aid_click_weights.items(), key=lambda item: -item[1])][:20]
+            sorted_click_aids = [aid for aid, weight in session_aid_click_weights.most_common(20)]
 
             # Concatenate all covisited click and cart aids and increase cart weights based on covisitation
             covisited_click_and_cart_aids = list(itertools.chain(*[top_buys[aid] for aid in session_unique_click_and_cart_aids if aid in top_buys]))
@@ -252,7 +252,7 @@ if __name__ == '__main__':
                 session_aid_cart_weights[aid] += 0.1
 
             # Sort cart aids by their weights in descending order
-            sorted_cart_aids = [aid for aid, weight in sorted(session_aid_cart_weights.items(), key=lambda item: -item[1])][:20]
+            sorted_cart_aids = [aid for aid, weight in session_aid_cart_weights.most_common(20)]
 
             # Concatenate all covisited cart and order aids and increase order weights based on covisitation
             covisited_cart_and_order_aids = list(itertools.chain(*[top_buy2buy[aid] for aid in session_unique_cart_and_order_aids if aid in top_buy2buy]))
@@ -260,11 +260,11 @@ if __name__ == '__main__':
                 session_aid_order_weights[aid] += 0.1
 
             # Sort order aids by their weights in descending order
-            sorted_order_aids = [aid for aid, weight in sorted(session_aid_order_weights.items(), key=lambda item: -item[1])][:20]
+            sorted_order_aids = [aid for aid, weight in session_aid_order_weights.most_common(20)]
 
-            click_predictions = sorted_click_aids + [aid for aid in all_20_most_frequent_click_aids if aid not in sorted_click_aids][:20 - len(sorted_click_aids)]
-            cart_predictions = sorted_cart_aids + [aid for aid in all_20_most_frequent_cart_aids if aid not in sorted_cart_aids][:20 - len(sorted_cart_aids)]
-            order_predictions = sorted_order_aids + [aid for aid in all_20_most_frequent_order_aids if aid not in sorted_order_aids][:20 - len(sorted_order_aids)]
+            click_predictions = sorted_click_aids
+            cart_predictions = sorted_cart_aids
+            order_predictions = sorted_order_aids
 
             for event_type, predictions in zip(['click', 'cart', 'order'], [click_predictions, cart_predictions, order_predictions]):
                 test_predictions.append({
@@ -279,7 +279,7 @@ if __name__ == '__main__':
 
             session_aids = row['aid']
             session_event_types = row['type']
-            session_unique_aids = list(np.unique(session_aids))
+            session_unique_aids = list(dict.fromkeys(session_aids[::-1]))
             session_unique_click_and_cart_aids = np.unique(np.array(session_aids)[np.array(session_event_types) <= 1]).tolist()
             session_unique_cart_and_order_aids = np.unique(np.array(session_aids)[np.array(session_event_types) >= 1]).tolist()
 
@@ -297,12 +297,12 @@ if __name__ == '__main__':
             covisited_cart_and_order_aids += list(itertools.chain(*[top_buy2buy[aid] for aid in session_unique_cart_and_order_aids if aid in top_buy2buy]))
             sorted_order_aids = [aid for aid, count in Counter(covisited_cart_and_order_aids).most_common(20) if aid not in session_unique_aids]
 
-            click_predictions = session_unique_aids + sorted_click_aids[:20 - len(session_unique_aids)]
-            click_predictions = click_predictions + all_20_most_frequent_click_aids[:20 - len(click_predictions)]
-            cart_predictions = session_unique_aids + sorted_cart_aids[:20 - len(session_unique_aids)]
-            cart_predictions = cart_predictions + all_20_most_frequent_cart_aids[:20 - len(cart_predictions)]
-            order_predictions = session_unique_aids + sorted_order_aids[:20 - len(session_unique_aids)]
-            order_predictions = order_predictions + all_20_most_frequent_order_aids[:20 - len(order_predictions)]
+            click_predictions = session_unique_aids + sorted_click_aids
+            click_predictions = click_predictions + most_frequent_click_aids[:20 - len(click_predictions)]
+            cart_predictions = session_unique_aids + sorted_cart_aids
+            cart_predictions = cart_predictions + most_frequent_cart_aids[:20 - len(cart_predictions)]
+            order_predictions = session_unique_aids + sorted_order_aids
+            order_predictions = order_predictions + most_frequent_order_aids[:20 - len(order_predictions)]
 
             for event_type, predictions in zip(['click', 'cart', 'order'], [click_predictions, cart_predictions, order_predictions]):
                 test_predictions.append({
@@ -311,7 +311,6 @@ if __name__ == '__main__':
                 })
 
         logging.info(f'{covisitation_predictions_idx.sum()} sessions are predicted with covisitation')
-
 
         df_test_predictions = pd.DataFrame(test_predictions)
         logging.info(f'Prediction lengths {json.dumps(df_test_predictions["labels"].apply(lambda x: len(x.split())).value_counts().to_dict(), indent=2)}')
