@@ -169,6 +169,47 @@ def visualize_aid_frequencies(aid_frequencies, title, path=None):
         plt.close(fig)
 
 
+def visualize_feature_importance(df_feature_importance, path=None):
+
+    """
+    Visualize feature importance in descending order
+
+    Parameters
+    ----------
+    df_feature_importance: pandas.DataFrame of shape (n_features, n_splits)
+        Dataframe of feature importance
+
+    path: path-like str or None
+        Path of the output file or None (if path is None, plot is displayed with selected backend)
+    """
+
+    n_splits = df_feature_importance.shape[1] - 2
+
+    fig, ax = plt.subplots(figsize=(24, 20), dpi=100)
+    ax.barh(
+        range(len(df_feature_importance)),
+        df_feature_importance['mean'],
+        xerr=df_feature_importance['std'],
+        ecolor='black',
+        capsize=10,
+        align='center',
+    )
+    ax.set_xlabel('')
+    ax.set_ylabel('')
+    ax.set_yticks(range(len(df_feature_importance)))
+    ax.set_yticklabels([f'{k} ({v:.2f})' for k, v in df_feature_importance['mean'].to_dict().items()])
+    ax.tick_params(axis='x', labelsize=15, pad=10)
+    ax.tick_params(axis='y', labelsize=15, pad=10)
+    ax.set_title(f'Mean and Std Feature Importance of {n_splits} Models', size=20, pad=15)
+    plt.gca().invert_yaxis()
+
+    if path is None:
+        plt.show()
+    else:
+        plt.savefig(path, bbox_inches='tight')
+        plt.close(fig)
+
+
 if __name__ == '__main__':
 
     df_train = pd.read_pickle(settings.DATA / 'train.pkl')
