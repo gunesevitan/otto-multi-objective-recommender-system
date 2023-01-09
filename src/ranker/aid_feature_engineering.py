@@ -47,7 +47,7 @@ if __name__ == '__main__':
             'ts_diff': 'mean',
             'hour': ['mean', 'std'],
             'day_of_week': ['mean', 'std'],
-            'is_weekend': ['mean'],
+            'is_weekend': 'mean',
         }).reset_index()
         df_aid_features.columns = 'aid_' + df_aid_features.columns.map('_'.join).str.strip('_')
         df_aid_features = df_aid_features.rename(columns={'aid_aid': 'aid', 'aid_aid_count': 'aid_count'})
@@ -70,7 +70,7 @@ if __name__ == '__main__':
                 'ts_diff': 'mean',
                 'hour': ['mean', 'std'],
                 'day_of_week': ['mean', 'std'],
-                'is_weekend': ['mean'],
+                'is_weekend': 'mean',
             })
             df_aid_type_features.columns = f'aid_{event_type}_' + df_aid_type_features.columns.map('_'.join).str.strip('_')
             df_aid_type_features = df_aid_type_features.rename(columns={f'aid_{event_type}_aid_count': f'aid_{event_type}_count'})
@@ -107,7 +107,7 @@ if __name__ == '__main__':
             'ts_diff': 'mean',
             'hour': ['mean', 'std'],
             'day_of_week': ['mean', 'std'],
-            'is_weekend': ['mean'],
+            'is_weekend': 'mean',
         }).reset_index()
         df_aid_features.columns = 'aid_' + df_aid_features.columns.map('_'.join).str.strip('_')
         df_aid_features = df_aid_features.rename(columns={'aid_aid': 'aid', 'aid_aid_count': 'aid_count'})
@@ -130,7 +130,7 @@ if __name__ == '__main__':
                 'ts_diff': 'mean',
                 'hour': ['mean', 'std'],
                 'day_of_week': ['mean', 'std'],
-                'is_weekend': ['mean'],
+                'is_weekend': 'mean',
             })
             df_aid_type_features.columns = f'aid_{event_type}_' + df_aid_type_features.columns.map('_'.join).str.strip('_')
             df_aid_type_features = df_aid_type_features.rename(columns={f'aid_{event_type}_aid_count': f'aid_{event_type}_count'})
