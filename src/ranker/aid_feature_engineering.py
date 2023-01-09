@@ -142,3 +142,6 @@ if __name__ == '__main__':
         del df
         df_aid_features.to_pickle(feature_engineering_directory / 'train_and_test_aid_features.pkl')
         logging.info(f'Saved train_and_test_aid_features.pkl to {feature_engineering_directory}')
+
+    else:
+        raise ValueError('Invalid mode')
