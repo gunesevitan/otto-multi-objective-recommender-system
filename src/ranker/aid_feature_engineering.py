@@ -34,6 +34,7 @@ if __name__ == '__main__':
         df.sort_values(by=['session', 'ts'], ascending=[True, True], inplace=True)
         df.reset_index(drop=True, inplace=True)
         df['datetime'] = pd.to_datetime((df['ts'] / 1000) + (2 * 60 * 60), unit='s')
+        df['ts_diff'] = df.groupby('aid')['ts'].diff().fillna(0).astype(np.uint8)
         df['hour'] = df['datetime'].dt.hour.astype(np.uint8)
         df['day_of_week'] = df['datetime'].dt.dayofweek.astype(np.uint8)
         df['is_weekend'] = (df['day_of_week'] > 4).astype(np.uint8)
@@ -43,6 +44,7 @@ if __name__ == '__main__':
             'aid': 'count',
             'session': 'nunique',
             'type': 'mean',
+            'ts_diff': 'mean',
             'hour': ['mean', 'std'],
             'day_of_week': ['mean', 'std'],
             'is_weekend': ['mean'],
@@ -51,6 +53,7 @@ if __name__ == '__main__':
         df_aid_features = df_aid_features.rename(columns={'aid_aid': 'aid', 'aid_aid_count': 'aid_count'})
         df_aid_features['aid_count'] = df_aid_features['aid_count'].astype(np.uint32)
         df_aid_features['aid_session_nunique'] = df_aid_features['aid_session_nunique'].astype(np.uint32)
+        df_aid_features['aid_ts_diff_mean'] = df_aid_features['aid_ts_diff_mean'].astype(np.float32)
         df_aid_features['aid_type_mean'] = df_aid_features['aid_type_mean'].astype(np.float32)
         df_aid_features['aid_hour_mean'] = df_aid_features['aid_hour_mean'].astype(np.float32)
         df_aid_features['aid_hour_std'] = df_aid_features['aid_hour_std'].astype(np.float32)
@@ -64,6 +67,7 @@ if __name__ == '__main__':
             df_aid_type_features = df.loc[df['type'] == event_type_value].groupby('aid').agg({
                 'aid': 'count',
                 'session': 'nunique',
+                'ts_diff': 'mean',
                 'hour': ['mean', 'std'],
                 'day_of_week': ['mean', 'std'],
                 'is_weekend': ['mean'],
@@ -90,6 +94,7 @@ if __name__ == '__main__':
         df.sort_values(by=['session', 'ts'], ascending=[True, True], inplace=True)
         df.reset_index(drop=True, inplace=True)
         df['datetime'] = pd.to_datetime((df['ts'] / 1000) + (2 * 60 * 60), unit='s')
+        df['ts_diff'] = df.groupby('aid')['ts'].diff().fillna(0).astype(np.uint8)
         df['hour'] = df['datetime'].dt.hour.astype(np.uint8)
         df['day_of_week'] = df['datetime'].dt.dayofweek.astype(np.uint8)
         df['is_weekend'] = (df['day_of_week'] > 4).astype(np.uint8)
@@ -99,6 +104,7 @@ if __name__ == '__main__':
             'aid': 'count',
             'session': 'nunique',
             'type': 'mean',
+            'ts_diff': 'mean',
             'hour': ['mean', 'std'],
             'day_of_week': ['mean', 'std'],
             'is_weekend': ['mean'],
@@ -107,6 +113,7 @@ if __name__ == '__main__':
         df_aid_features = df_aid_features.rename(columns={'aid_aid': 'aid', 'aid_aid_count': 'aid_count'})
         df_aid_features['aid_count'] = df_aid_features['aid_count'].astype(np.uint32)
         df_aid_features['aid_session_nunique'] = df_aid_features['aid_session_nunique'].astype(np.uint32)
+        df_aid_features['aid_ts_diff_mean'] = df_aid_features['aid_ts_diff_mean'].astype(np.float32)
         df_aid_features['aid_type_mean'] = df_aid_features['aid_type_mean'].astype(np.float32)
         df_aid_features['aid_hour_mean'] = df_aid_features['aid_hour_mean'].astype(np.float32)
         df_aid_features['aid_hour_std'] = df_aid_features['aid_hour_std'].astype(np.float32)
@@ -120,6 +127,7 @@ if __name__ == '__main__':
             df_aid_type_features = df.loc[df['type'] == event_type_value].groupby('aid').agg({
                 'aid': 'count',
                 'session': 'nunique',
+                'ts_diff': 'mean',
                 'hour': ['mean', 'std'],
                 'day_of_week': ['mean', 'std'],
                 'is_weekend': ['mean'],
