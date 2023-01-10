@@ -8,6 +8,7 @@ import itertools
 from tqdm import tqdm
 import numpy as np
 import pandas as pd
+import polars as pl
 
 sys.path.append('..')
 import settings
@@ -40,63 +41,68 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     frequency_directory = pathlib.Path(settings.DATA / 'aid_frequencies')
-
-    with open(settings.DATA / frequency_directory / 'all_20_most_frequent_click_aids.json') as f:
-        most_frequent_click_aids = list(json.load(f).keys())
-
-    with open(settings.DATA / frequency_directory / 'all_20_most_frequent_cart_aids.json') as f:
-        most_frequent_cart_aids = list(json.load(f).keys())
-
-    with open(settings.DATA / frequency_directory / 'all_20_most_frequent_order_aids.json') as f:
-        most_frequent_order_aids = list(json.load(f).keys())
-
-    logging.info(f'Loaded top 20 most frequent aids from entire dataset for clicks, orders and carts')
-
     covisitation_directory = pathlib.Path(settings.DATA / 'covisitation')
 
-    top_clicks = covisitation_df_to_dict(pd.read_parquet(str(covisitation_directory / 'top_15_clicks_0.pqt')))
-    for i in range(1, 4):
-        top_clicks.update(covisitation_df_to_dict(pd.read_parquet(str(covisitation_directory / f'top_15_clicks_{i}.pqt'))))
-
-    top_buys = covisitation_df_to_dict(pd.read_parquet(str(covisitation_directory / 'top_20_carts_orders_0.pqt')))
-    for i in range(1, 4):
-        top_buys.update(covisitation_df_to_dict(pd.read_parquet(str(covisitation_directory / f'top_20_carts_orders_{i}.pqt'))))
-
-    top_buy2buy = covisitation_df_to_dict(pd.read_parquet(str(covisitation_directory / 'top_20_buy2buy_0.pqt')))
-
-    logging.info(f'Loaded top covisitation statistics from entire dataset for clicks, orders and carts')
     event_type_coefficient = {0: 0.5, 1: 9, 2: 0.5}
 
     if args.mode == 'validation':
 
-        logging.info('Running covisitation model in validation mode')
-        df_train_labels = pd.read_pickle(settings.DATA / 'train_labels.pkl')
-        logging.info(f'Train Labels Shape: {df_train_labels.shape} - Memory Usage: {df_train_labels.memory_usage().sum() / 1024 ** 2:.2f} MB')
+        with open(settings.DATA / frequency_directory / 'train_20_most_frequent_click_aids.json') as f:
+            most_frequent_click_aids = [int(aid) for aid in list(json.load(f).keys())]
 
-        # Cut session aids and event types from their cutoff index
-        df_train_labels['aid'] = df_train_labels[['aid', 'session_cutoff_idx']].apply(lambda x: x['aid'][:x['session_cutoff_idx'] + 1], axis=1)
-        df_train_labels['type'] = df_train_labels[['type', 'session_cutoff_idx']].apply(lambda x: x['type'][:x['session_cutoff_idx'] + 1], axis=1)
+        with open(settings.DATA / frequency_directory / 'train_20_most_frequent_cart_aids.json') as f:
+            most_frequent_cart_aids = [int(aid) for aid in list(json.load(f).keys())]
+
+        with open(settings.DATA / frequency_directory / 'train_20_most_frequent_order_aids.json') as f:
+            most_frequent_order_aids = [int(aid) for aid in list(json.load(f).keys())]
+
+        logging.info(f'Loaded top 20 most frequent aids from entire dataset for clicks, orders and carts')
+
+        top_clicks = covisitation_df_to_dict(pd.read_parquet(str(covisitation_directory / 'validation' / 'top_15_clicks_0.pqt')))
+        for i in range(1, 4):
+            top_clicks.update(covisitation_df_to_dict(pd.read_parquet(str(covisitation_directory / 'validation' / f'top_15_clicks_{i}.pqt'))))
+
+        top_buys = covisitation_df_to_dict(pd.read_parquet(str(covisitation_directory / 'validation' / 'top_20_carts_orders_0.pqt')))
+        for i in range(1, 4):
+            top_buys.update(covisitation_df_to_dict(pd.read_parquet(str(covisitation_directory / 'validation' / f'top_20_carts_orders_{i}.pqt'))))
+
+        top_buy2buy = covisitation_df_to_dict(pd.read_parquet(str(covisitation_directory / 'validation' / 'top_20_buy2buy_0.pqt')))
+
+        logging.info(f'Loaded top covisitation statistics from entire dataset for clicks, orders and carts')
+
+        logging.info('Running covisitation model in validation mode')
+
+        df_val = pd.read_parquet(settings.DATA / 'splits' / 'val.parquet')
+        df_val = df_val.groupby('session')[['aid', 'type']].agg(list).reset_index()
+        df_val_labels = pd.read_parquet(settings.DATA / 'splits' / 'val_labels.parquet')
+        df_val_labels['type'] = df_val_labels['type'].map({'clicks': 0, 'carts': 1, 'orders': 2})
+        df_val = df_val.merge(df_val_labels.loc[df_val_labels['type'] == 0, ['session', 'ground_truth']].rename(columns={'ground_truth': 'click_labels'}), how='left', on='session')
+        df_val = df_val.merge(df_val_labels.loc[df_val_labels['type'] == 1, ['session', 'ground_truth']].rename(columns={'ground_truth': 'cart_labels'}), how='left', on='session')
+        df_val = df_val.merge(df_val_labels.loc[df_val_labels['type'] == 2, ['session', 'ground_truth']].rename(columns={'ground_truth': 'order_labels'}), how='left', on='session')
+        df_val = df_val.fillna(df_val.notna().applymap(lambda x: x or []))
+        del df_val_labels
+        logging.info(f'Validation Labels Shape: {df_val.shape} - Memory Usage: {df_val.memory_usage().sum() / 1024 ** 2:.2f} MB')
 
         # Specify prediction types for different models
-        df_train_labels['session_unique_aid_count'] = df_train_labels['aid'].apply(lambda session_aids: len(set(session_aids)))
-        recency_weight_predictions_idx = df_train_labels['session_unique_aid_count'] >= 20
-        df_train_labels.loc[recency_weight_predictions_idx, 'prediction_type'] = 'recency_weight'
-        df_train_labels.loc[~recency_weight_predictions_idx, 'prediction_type'] = 'covisitation'
+        df_val['session_unique_aid_count'] = df_val['aid'].apply(lambda session_aids: len(set(session_aids)))
+        recency_weight_predictions_idx = df_val['session_unique_aid_count'] >= 20
+        df_val.loc[recency_weight_predictions_idx, 'prediction_type'] = 'recency_weight'
+        df_val.loc[~recency_weight_predictions_idx, 'prediction_type'] = 'covisitation'
         del recency_weight_predictions_idx
-        logging.info(f'Prediction type distribution: {json.dumps(df_train_labels["prediction_type"].value_counts().to_dict(), indent=2)}')
+        logging.info(f'Prediction type distribution: {json.dumps(df_val["prediction_type"].value_counts().to_dict(), indent=2)}')
 
-        df_train_labels['click_predictions'] = np.nan
-        df_train_labels['click_predictions'] = df_train_labels['click_predictions'].astype(object)
-        df_train_labels['cart_predictions'] = np.nan
-        df_train_labels['cart_predictions'] = df_train_labels['cart_predictions'].astype(object)
-        df_train_labels['order_predictions'] = np.nan
-        df_train_labels['order_predictions'] = df_train_labels['order_predictions'].astype(object)
+        df_val['click_predictions'] = np.nan
+        df_val['click_predictions'] = df_val['click_predictions'].astype(object)
+        df_val['cart_predictions'] = np.nan
+        df_val['cart_predictions'] = df_val['cart_predictions'].astype(object)
+        df_val['order_predictions'] = np.nan
+        df_val['order_predictions'] = df_val['order_predictions'].astype(object)
 
-        recency_weight_predictions_idx = df_train_labels['prediction_type'] == 'recency_weight'
-        for idx, row in tqdm(df_train_labels.loc[recency_weight_predictions_idx].iterrows(), total=df_train_labels.loc[recency_weight_predictions_idx].shape[0]):
+        recency_weight_predictions_idx = df_val['prediction_type'] == 'recency_weight'
+        for t in tqdm(df_val.loc[recency_weight_predictions_idx].itertuples(), total=df_val.loc[recency_weight_predictions_idx].shape[0]):
 
-            session_aids = row['aid']
-            session_event_types = row['type']
+            session_aids = t.aid
+            session_event_types = t.type
             session_unique_aids = list(dict.fromkeys(session_aids[::-1]))
             session_unique_click_and_cart_aids = np.unique(np.array(session_aids)[np.array(session_event_types) <= 1]).tolist()
             session_unique_cart_and_order_aids = np.unique(np.array(session_aids)[np.array(session_event_types) >= 1]).tolist()
@@ -120,7 +126,7 @@ if __name__ == '__main__':
             # Concatenate all covisited click and cart aids and increase cart weights based on covisitation
             covisited_click_and_cart_aids = list(itertools.chain(*[top_buys[aid] for aid in session_unique_click_and_cart_aids if aid in top_buys]))
             for aid in covisited_click_and_cart_aids:
-                session_aid_cart_weights[aid] += 0.25
+                session_aid_cart_weights[aid] += 0.1
 
             # Sort cart aids by their weights in descending order
             sorted_cart_aids = [aid for aid, weight in session_aid_cart_weights.most_common(20)]
@@ -128,7 +134,7 @@ if __name__ == '__main__':
             # Concatenate all covisited cart and order aids and increase order weights based on covisitation
             covisited_cart_and_order_aids = list(itertools.chain(*[top_buy2buy[aid] for aid in session_unique_cart_and_order_aids if aid in top_buy2buy]))
             for aid in covisited_cart_and_order_aids:
-                session_aid_order_weights[aid] += 0.50
+                session_aid_order_weights[aid] += 0.1
 
             # Sort order aids by their weights in descending order
             sorted_order_aids = [aid for aid, weight in session_aid_order_weights.most_common(20)]
@@ -137,17 +143,17 @@ if __name__ == '__main__':
             cart_predictions = sorted_cart_aids
             order_predictions = sorted_order_aids
 
-            df_train_labels.at[idx, 'click_predictions'] = click_predictions
-            df_train_labels.at[idx, 'cart_predictions'] = sorted_cart_aids
-            df_train_labels.at[idx, 'order_predictions'] = sorted_order_aids
+            df_val.at[t.Index, 'click_predictions'] = click_predictions
+            df_val.at[t.Index, 'cart_predictions'] = sorted_cart_aids
+            df_val.at[t.Index, 'order_predictions'] = sorted_order_aids
 
         logging.info(f'{recency_weight_predictions_idx.sum()} sessions are predicted with recency weight')
 
         covisitation_predictions_idx = ~recency_weight_predictions_idx
-        for idx, row in tqdm(df_train_labels.loc[covisitation_predictions_idx].iterrows(), total=df_train_labels.loc[covisitation_predictions_idx].shape[0]):
+        for t in tqdm(df_val.loc[covisitation_predictions_idx].itertuples(), total=df_val.loc[covisitation_predictions_idx].shape[0]):
 
-            session_aids = row['aid']
-            session_event_types = row['type']
+            session_aids = t.aid
+            session_event_types = t.type
             session_unique_aids = list(dict.fromkeys(session_aids[::-1]))
             session_unique_click_and_cart_aids = np.unique(np.array(session_aids)[np.array(session_event_types) <= 1]).tolist()
             session_unique_cart_and_order_aids = np.unique(np.array(session_aids)[np.array(session_event_types) >= 1]).tolist()
@@ -166,40 +172,61 @@ if __name__ == '__main__':
             covisited_cart_and_order_aids += list(itertools.chain(*[top_buy2buy[aid] for aid in session_unique_cart_and_order_aids if aid in top_buy2buy]))
             sorted_order_aids = [aid for aid, count in Counter(covisited_cart_and_order_aids).most_common(20) if aid not in session_unique_aids]
 
-            click_predictions = session_unique_aids + sorted_click_aids
+            click_predictions = session_unique_aids + sorted_click_aids[:20 - len(session_unique_aids)]
             click_predictions = click_predictions + most_frequent_click_aids[:20 - len(click_predictions)]
-            cart_predictions = session_unique_aids + sorted_cart_aids
+            cart_predictions = session_unique_aids + sorted_cart_aids[:20 - len(session_unique_aids)]
             cart_predictions = cart_predictions + most_frequent_cart_aids[:20 - len(cart_predictions)]
-            order_predictions = session_unique_aids + sorted_order_aids
-            order_predictions = order_predictions + most_frequent_cart_aids[:20 - len(order_predictions)]
+            order_predictions = session_unique_aids + sorted_order_aids[:20 - len(session_unique_aids)]
+            order_predictions = order_predictions + most_frequent_order_aids[:20 - len(order_predictions)]
 
-            df_train_labels.at[idx, 'click_predictions'] = click_predictions
-            df_train_labels.at[idx, 'cart_predictions'] = cart_predictions
-            df_train_labels.at[idx, 'order_predictions'] = order_predictions
+            df_val.at[t.Index, 'click_predictions'] = click_predictions
+            df_val.at[t.Index, 'cart_predictions'] = cart_predictions
+            df_val.at[t.Index, 'order_predictions'] = order_predictions
 
         logging.info(f'{covisitation_predictions_idx.sum()} sessions are predicted with covisitation')
 
-        df_train_labels['click_recall'] = df_train_labels[['click_labels', 'click_predictions']].apply(lambda x: metrics.click_recall(x['click_labels'], x['click_predictions']), axis=1)
-        df_train_labels['cart_recall'] = df_train_labels[['cart_labels', 'cart_predictions']].apply(lambda x: metrics.cart_order_recall(x['cart_labels'], x['cart_predictions']), axis=1)
-        df_train_labels['order_recall'] = df_train_labels[['order_labels', 'order_predictions']].apply(lambda x: metrics.cart_order_recall(x['order_labels'], x['order_predictions']), axis=1)
-        df_train_labels['weighted_recall'] = (df_train_labels['click_recall'] * 0.1) + (df_train_labels['cart_recall'] * 0.3) + (df_train_labels['order_recall'] * 0.6)
-
-        mean_click_recall = df_train_labels['click_recall'].mean()
-        mean_cart_recall = df_train_labels['cart_recall'].mean()
-        mean_order_recall = df_train_labels['order_recall'].mean()
-        mean_weighted_recall = df_train_labels['weighted_recall'].mean()
+        df_val['click_hits'] = pl.DataFrame(df_val[['click_predictions', 'click_labels']]).apply(lambda x: len(set(x[0]).intersection(set(x[1])))).to_pandas().values.reshape(-1)
+        click_recall = df_val['click_hits'].sum() / df_val['click_labels'].apply(len).clip(0, 20).sum()
+        df_val['cart_hits'] = pl.DataFrame(df_val[['cart_predictions', 'cart_labels']]).apply(lambda x: len(set(x[0]).intersection(set(x[1])))).to_pandas().values.reshape(-1)
+        cart_recall = df_val['cart_hits'].sum() / df_val['cart_labels'].apply(len).clip(0, 20).sum()
+        df_val['order_hits'] = pl.DataFrame(df_val[['order_predictions', 'order_labels']]).apply(lambda x: len(set(x[0]).intersection(set(x[1])))).to_pandas().values.reshape(-1)
+        order_recall = df_val['order_hits'].sum() / df_val['order_labels'].apply(len).clip(0, 20).sum()
+        weighted_recall = (click_recall * 0.1) + (cart_recall * 0.3) + (order_recall * 0.6)
 
         logging.info(
             f'''
             Covisitation model validation scores
-            clicks - n: {df_train_labels["click_recall"].notna().sum()} recall@20: {mean_click_recall:.4f}
-            carts - n: {df_train_labels["cart_recall"].notna().sum()} recall@20: {mean_cart_recall:.4f}
-            orders - n: {df_train_labels["order_recall"].notna().sum()} recall@20: {mean_order_recall:.4f}
-            weighted recall@20: {mean_weighted_recall:.4f}
+            clicks - n: {df_val["click_labels"].apply(lambda x: len(x) > 0).sum()} recall@20: {click_recall:.4f}
+            carts - n: {df_val["cart_labels"].apply(lambda x: len(x) > 0).sum()} recall@20: {cart_recall:.4f}
+            orders - n: {df_val["order_labels"].apply(lambda x: len(x) > 0).sum()} recall@20: {order_recall:.4f}
+            weighted recall@20: {weighted_recall:.4f}
             '''
         )
 
     elif args.mode == 'submission':
+
+        with open(settings.DATA / frequency_directory / 'test_20_most_frequent_click_aids.json') as f:
+            most_frequent_click_aids = [int(aid) for aid in list(json.load(f).keys())]
+
+        with open(settings.DATA / frequency_directory / 'test_20_most_frequent_cart_aids.json') as f:
+            most_frequent_cart_aids = [int(aid) for aid in list(json.load(f).keys())]
+
+        with open(settings.DATA / frequency_directory / 'test_20_most_frequent_order_aids.json') as f:
+            most_frequent_order_aids = [int(aid) for aid in list(json.load(f).keys())]
+
+        logging.info(f'Loaded top 20 most frequent aids from entire dataset for clicks, orders and carts')
+
+        top_clicks = covisitation_df_to_dict(pd.read_parquet(str(covisitation_directory / 'submission' / 'top_15_clicks_0.pqt')))
+        for i in range(1, 4):
+            top_clicks.update(covisitation_df_to_dict(pd.read_parquet(str(covisitation_directory / 'submission' / f'top_15_clicks_{i}.pqt'))))
+
+        top_buys = covisitation_df_to_dict(pd.read_parquet(str(covisitation_directory / 'submission' / 'top_20_carts_orders_0.pqt')))
+        for i in range(1, 4):
+            top_buys.update(covisitation_df_to_dict(pd.read_parquet(str(covisitation_directory / 'submission' / f'top_20_carts_orders_{i}.pqt'))))
+
+        top_buy2buy = covisitation_df_to_dict(pd.read_parquet(str(covisitation_directory / 'submission' / 'top_20_buy2buy_0.pqt')))
+
+        logging.info(f'Loaded top covisitation statistics from entire dataset for clicks, orders and carts')
 
         test_predictions = []
 
@@ -222,10 +249,10 @@ if __name__ == '__main__':
 
         event_type_coefficient = {0: 0.5, 1: 9, 2: 0.5}
         recency_weight_predictions_idx = df_test['prediction_type'] == 'recency_weight'
-        for idx, row in tqdm(df_test.loc[recency_weight_predictions_idx].iterrows(), total=df_test.loc[recency_weight_predictions_idx].shape[0]):
+        for t in tqdm(df_test.loc[recency_weight_predictions_idx].itertuples(), total=df_test.loc[recency_weight_predictions_idx].shape[0]):
 
-            session_aids = row['aid']
-            session_event_types = row['type']
+            session_aids = t.aid
+            session_event_types = t.type
             session_unique_aids = list(dict.fromkeys(session_aids[::-1]))
             session_unique_click_and_cart_aids = np.unique(np.array(session_aids)[np.array(session_event_types) <= 1]).tolist()
             session_unique_cart_and_order_aids = np.unique(np.array(session_aids)[np.array(session_event_types) >= 1]).tolist()
@@ -268,17 +295,17 @@ if __name__ == '__main__':
 
             for event_type, predictions in zip(['click', 'cart', 'order'], [click_predictions, cart_predictions, order_predictions]):
                 test_predictions.append({
-                    'session_type': f'{row["session"]}_{event_type}s',
+                    'session_type': f'{t.session}_{event_type}s',
                     'labels': ' '.join([str(aid) for aid in predictions])
                 })
 
         logging.info(f'{recency_weight_predictions_idx.sum()} sessions are predicted with recency weight')
 
         covisitation_predictions_idx = ~recency_weight_predictions_idx
-        for idx, row in tqdm(df_test.loc[covisitation_predictions_idx].iterrows(), total=df_test.loc[covisitation_predictions_idx].shape[0]):
+        for t in tqdm(df_test.loc[covisitation_predictions_idx].itertuples(), total=df_test.loc[covisitation_predictions_idx].shape[0]):
 
-            session_aids = row['aid']
-            session_event_types = row['type']
+            session_aids = t.aid
+            session_event_types = t.type
             session_unique_aids = list(dict.fromkeys(session_aids[::-1]))
             session_unique_click_and_cart_aids = np.unique(np.array(session_aids)[np.array(session_event_types) <= 1]).tolist()
             session_unique_cart_and_order_aids = np.unique(np.array(session_aids)[np.array(session_event_types) >= 1]).tolist()
@@ -297,16 +324,16 @@ if __name__ == '__main__':
             covisited_cart_and_order_aids += list(itertools.chain(*[top_buy2buy[aid] for aid in session_unique_cart_and_order_aids if aid in top_buy2buy]))
             sorted_order_aids = [aid for aid, count in Counter(covisited_cart_and_order_aids).most_common(20) if aid not in session_unique_aids]
 
-            click_predictions = session_unique_aids + sorted_click_aids
+            click_predictions = session_unique_aids + sorted_click_aids[:20 - len(session_unique_aids)]
             click_predictions = click_predictions + most_frequent_click_aids[:20 - len(click_predictions)]
-            cart_predictions = session_unique_aids + sorted_cart_aids
+            cart_predictions = session_unique_aids + sorted_cart_aids[:20 - len(session_unique_aids)]
             cart_predictions = cart_predictions + most_frequent_cart_aids[:20 - len(cart_predictions)]
-            order_predictions = session_unique_aids + sorted_order_aids
+            order_predictions = session_unique_aids + sorted_order_aids[:20 - len(session_unique_aids)]
             order_predictions = order_predictions + most_frequent_order_aids[:20 - len(order_predictions)]
 
             for event_type, predictions in zip(['click', 'cart', 'order'], [click_predictions, cart_predictions, order_predictions]):
                 test_predictions.append({
-                    'session_type': f'{row["session"]}_{event_type}s',
+                    'session_type': f'{t.session}_{event_type}s',
                     'labels': ' '.join([str(aid) for aid in predictions[:20]])
                 })
 
