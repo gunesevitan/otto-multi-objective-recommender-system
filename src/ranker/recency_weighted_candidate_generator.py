@@ -104,7 +104,6 @@ if __name__ == '__main__':
             df_val.at[idx, 'cart_candidate_labels'] = sorted_cart_aid_labels
             df_val.at[idx, 'order_candidate_labels'] = sorted_order_aid_labels
 
-
         df_val['click_hits'] = pl.DataFrame(df_val[['click_candidates', 'click_labels']]).apply(lambda x: len(set(x[0]).intersection(set(x[1])))).to_pandas().values.reshape(-1)
         click_recall = df_val['click_hits'].sum() / df_val['click_labels'].apply(len).clip(0, 20).sum()
         df_val['cart_hits'] = pl.DataFrame(df_val[['cart_candidates', 'cart_labels']]).apply(lambda x: len(set(x[0]).intersection(set(x[1])))).to_pandas().values.reshape(-1)
