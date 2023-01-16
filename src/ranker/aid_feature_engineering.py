@@ -1,9 +1,7 @@
 import sys
 import logging
 import argparse
-import glob
 import pathlib
-from tqdm import tqdm
 import numpy as np
 import pandas as pd
 
@@ -23,14 +21,11 @@ if __name__ == '__main__':
     if args.mode == 'validation':
 
         logging.info('Running aid feature engineering on training set')
-        truncated_train_parquet_directory = pathlib.Path(settings.DATA / 'parquet_files' / 'train_truncated_parquet')
-        truncated_train_parquet_file_paths = glob.glob(str(truncated_train_parquet_directory / '*'))
 
-        df = []
-        for file_path in tqdm(truncated_train_parquet_file_paths):
-            df.append(pd.read_parquet(file_path))
-
-        df = pd.concat(df, axis=0, ignore_index=True).reset_index(drop=True)
+        df = pd.concat((
+            pd.read_parquet(settings.DATA / 'splits' / 'train.parquet'),
+            pd.read_parquet(settings.DATA / 'splits' / 'val.parquet')
+        ), axis=0, ignore_index=True).reset_index(drop=True)
         df.sort_values(by=['session', 'ts'], ascending=[True, True], inplace=True)
         df.reset_index(drop=True, inplace=True)
         df['datetime'] = pd.to_datetime((df['ts'] / 1000) + (2 * 60 * 60), unit='s')
@@ -86,11 +81,11 @@ if __name__ == '__main__':
     elif args.mode == 'submission':
 
         logging.info('Running aid feature engineering on training and test set')
+
         df = pd.concat((
             pd.read_pickle(settings.DATA / 'train.pkl'),
             pd.read_pickle(settings.DATA / 'test.pkl')
         ))
-
         df.sort_values(by=['session', 'ts'], ascending=[True, True], inplace=True)
         df.reset_index(drop=True, inplace=True)
         df['datetime'] = pd.to_datetime((df['ts'] / 1000) + (2 * 60 * 60), unit='s')
