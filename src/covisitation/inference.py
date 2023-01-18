@@ -9,6 +9,8 @@ from tqdm import tqdm
 import numpy as np
 import pandas as pd
 import polars as pl
+import fasttext
+from annoy import AnnoyIndex
 
 sys.path.append('..')
 import settings
@@ -41,6 +43,31 @@ if __name__ == '__main__':
 
     frequency_directory = pathlib.Path(settings.DATA / 'aid_frequencies')
     covisitation_directory = pathlib.Path(settings.DATA / 'covisitation')
+
+    if args.mode == 'validation':
+        model_path = str(settings.MODELS / 'fasttext' / 'train_fasttext.bin')
+    elif args.mode == 'submission':
+        model_path = str(settings.MODELS / 'fasttext' / 'train_and_test_fasttext.bin')
+    else:
+        raise ValueError('Invalid mode')
+
+    model = fasttext.load_model(model_path)
+    embedding_dimensions = 32
+    logging.info(f'fasttext.bin is loaded')
+
+    annoy_index = AnnoyIndex(embedding_dimensions, metric='euclidean')
+    aid_idx = {}
+    idx_aid = {}
+    for idx, aid in tqdm(enumerate(model.words), total=len(model.words)):
+        if aid == '</s>':
+            continue
+        else:
+            annoy_index.add_item(idx, model.get_word_vector(aid))
+            aid_idx[int(aid)] = idx
+            idx_aid[idx] = int(aid)
+
+    annoy_index.build(n_trees=100, n_jobs=-1)
+    logging.info('Finished building Annoy index')
 
     event_type_coefficient = {0: 1, 1: 9, 2: 6}
 
@@ -135,6 +162,14 @@ if __name__ == '__main__':
                 session_aid_cart_weights[aid] += (cart_recency_weight * event_type_coefficient[event_type])
                 session_aid_order_weights[aid] += (order_recency_weight * event_type_coefficient[event_type])
 
+            # Get most similar aids and increase all type weights based on nearest neighbors
+            fasttext_nearest_neighbor_idx = annoy_index.get_nns_by_item(i=aid_idx[session_aids[-1]], n=46, search_k=-1, include_distances=False)
+            fasttext_similar_aids = [idx_aid[idx] for idx in fasttext_nearest_neighbor_idx[1:]]
+            for aid in fasttext_similar_aids:
+                session_aid_click_weights[aid] += 0.05
+                session_aid_cart_weights[aid] += 0.05
+                session_aid_order_weights[aid] += 0.15
+
             # Concatenate all covisited click aids and increase click weights based on covisitation
             covisited_clicks_aids = list(itertools.chain(*[top_time_weighted_covisitation[aid] for aid in session_unique_click_aids if aid in top_time_weighted_covisitation]))
             for aid in covisited_clicks_aids:
@@ -184,15 +219,20 @@ if __name__ == '__main__':
             click_cart_covisited_aids = list(itertools.chain(*[top_click_cart_covisitation[aid] for aid in session_unique_click_and_cart_aids if aid in top_click_cart_covisitation]))
             cart_order_covisited_aids = list(itertools.chain(*[top_cart_order_covisitation[aid] for aid in session_unique_click_and_cart_aids if aid in top_cart_order_covisitation]))
 
-            # Concatenate all covisited click aids and select most common ones
-            covisited_click_aids = time_weighted_covisited_aids + click_weighted_covisited_aids + cart_weighted_covisited_aids + click_cart_covisited_aids + cart_order_covisited_aids
+            # Get most similar aids of the last aid in the session
+            fasttext_nearest_neighbor_idx = annoy_index.get_nns_by_item(i=aid_idx[session_aids[-1]], n=46, search_k=-1, include_distances=False)
+            fasttext_similar_aids = [idx_aid[idx] for idx in fasttext_nearest_neighbor_idx[1:]]
+
+            # Concatenate all generated click aids and select most common ones
+            covisited_click_aids = time_weighted_covisited_aids + click_weighted_covisited_aids + cart_weighted_covisited_aids + click_cart_covisited_aids + cart_order_covisited_aids + fasttext_similar_aids
             sorted_click_aids = [aid for aid, count in Counter(covisited_click_aids).most_common(20) if aid not in session_unique_aids]
 
-            # Concatenate all covisited cart aids and select most common ones
-            covisited_cart_aids = time_weighted_covisited_aids + cart_weighted_covisited_aids + cart_order_covisited_aids
+            # Concatenate all generated cart aids and select most common ones
+            covisited_cart_aids = time_weighted_covisited_aids + cart_weighted_covisited_aids + cart_order_covisited_aids + fasttext_similar_aids
             sorted_cart_aids = [aid for aid, count in Counter(covisited_cart_aids).most_common(20) if aid not in session_unique_aids]
 
-            covisited_order_aids = time_weighted_covisited_aids + cart_weighted_covisited_aids + cart_order_covisited_aids
+            # Concatenate all generated order aids and select most common ones
+            covisited_order_aids = time_weighted_covisited_aids + cart_weighted_covisited_aids + cart_order_covisited_aids + fasttext_similar_aids
             sorted_order_aids = [aid for aid, count in Counter(covisited_order_aids).most_common(20) if aid not in session_unique_aids]
 
             click_predictions = session_unique_aids + sorted_click_aids[:20 - len(session_unique_aids)]
@@ -312,6 +352,14 @@ if __name__ == '__main__':
                 session_aid_cart_weights[aid] += (cart_recency_weight * event_type_coefficient[event_type])
                 session_aid_order_weights[aid] += (order_recency_weight * event_type_coefficient[event_type])
 
+            # Get most similar aids and increase all type weights based on nearest neighbors
+            fasttext_nearest_neighbor_idx = annoy_index.get_nns_by_item(i=aid_idx[session_aids[-1]], n=46, search_k=-1, include_distances=False)
+            fasttext_similar_aids = [idx_aid[idx] for idx in fasttext_nearest_neighbor_idx[1:]]
+            for aid in fasttext_similar_aids:
+                session_aid_click_weights[aid] += 0.05
+                session_aid_cart_weights[aid] += 0.05
+                session_aid_order_weights[aid] += 0.15
+
             # Concatenate all covisited click aids and increase click weights based on covisitation
             covisited_clicks_aids = list(itertools.chain(*[top_time_weighted_covisitation[aid] for aid in session_unique_click_aids if aid in top_time_weighted_covisitation]))
             for aid in covisited_clicks_aids:
@@ -363,15 +411,20 @@ if __name__ == '__main__':
             click_cart_covisited_aids = list(itertools.chain(*[top_click_cart_covisitation[aid] for aid in session_unique_click_and_cart_aids if aid in top_click_cart_covisitation]))
             cart_order_covisited_aids = list(itertools.chain(*[top_cart_order_covisitation[aid] for aid in session_unique_click_and_cart_aids if aid in top_cart_order_covisitation]))
 
-            # Concatenate all covisited click aids and select most common ones
-            covisited_click_aids = time_weighted_covisited_aids + click_weighted_covisited_aids + cart_weighted_covisited_aids + click_cart_covisited_aids + cart_order_covisited_aids
+            # Get most similar aids of the last aid in the session
+            fasttext_nearest_neighbor_idx = annoy_index.get_nns_by_item(i=aid_idx[session_aids[-1]], n=46, search_k=-1, include_distances=False)
+            fasttext_similar_aids = [idx_aid[idx] for idx in fasttext_nearest_neighbor_idx[1:]]
+
+            # Concatenate all generated click aids and select most common ones
+            covisited_click_aids = time_weighted_covisited_aids + click_weighted_covisited_aids + cart_weighted_covisited_aids + click_cart_covisited_aids + cart_order_covisited_aids + fasttext_similar_aids
             sorted_click_aids = [aid for aid, count in Counter(covisited_click_aids).most_common(20) if aid not in session_unique_aids]
 
-            # Concatenate all covisited cart aids and select most common ones
-            covisited_cart_aids = time_weighted_covisited_aids + cart_weighted_covisited_aids + cart_order_covisited_aids
+            # Concatenate all generated cart aids and select most common ones
+            covisited_cart_aids = time_weighted_covisited_aids + cart_weighted_covisited_aids + cart_order_covisited_aids + fasttext_similar_aids
             sorted_cart_aids = [aid for aid, count in Counter(covisited_cart_aids).most_common(20) if aid not in session_unique_aids]
 
-            covisited_order_aids = time_weighted_covisited_aids + cart_weighted_covisited_aids + cart_order_covisited_aids
+            # Concatenate all generated order aids and select most common ones
+            covisited_order_aids = time_weighted_covisited_aids + cart_weighted_covisited_aids + cart_order_covisited_aids + fasttext_similar_aids
             sorted_order_aids = [aid for aid, count in Counter(covisited_order_aids).most_common(20) if aid not in session_unique_aids]
 
             click_predictions = session_unique_aids + sorted_click_aids[:20 - len(session_unique_aids)]
