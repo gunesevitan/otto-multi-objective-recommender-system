@@ -30,6 +30,7 @@ if __name__ == '__main__':
 
         logging.info('Running session feature engineering in submission mode')
         df = pd.read_pickle(settings.DATA / 'test.pkl')
+        df['ts'] /= 1000
 
     else:
         raise ValueError('Invalid mode')

@@ -33,6 +33,7 @@ if __name__ == '__main__':
             pd.read_pickle(settings.DATA / 'train.pkl'),
             pd.read_pickle(settings.DATA / 'test.pkl')
         ), axis=0, ignore_index=True)
+        df['ts'] /= 1000
 
     else:
         raise ValueError('Invalid mode')
