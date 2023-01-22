@@ -41,7 +41,11 @@ if __name__ == '__main__':
             ), axis=0, ignore_index=True).reset_index(drop=True))
         elif args.mode == 'submission':
             df = pl.from_pandas(pd.read_pickle(settings.DATA / 'test.pkl'))
-            df['ts'] /= 1000
+            df = df.with_columns([
+                (pl.col('ts') / 1000),
+                pl.col('session').cast(pl.Int32),
+                pl.col('aid').cast(pl.Int32)
+            ])
         else:
             raise ValueError('Invalid mode')
 
