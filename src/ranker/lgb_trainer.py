@@ -22,7 +22,7 @@ if __name__ == '__main__':
     features = config['dataset'][event_type]['features']
     target = config['dataset'][event_type]['target']
 
-    df_candidate = pl.from_pandas(pd.read_pickle(settings.DATA / 'feature_engineering' / f'train_interaction_features.pkl'))
+    df_candidate = pl.from_pandas(pd.read_pickle(settings.DATA / 'feature_engineering' / f'train_{event_type}_interaction_features.pkl'))
     df_candidate = df_candidate[
         ['candidates', 'session', 'candidate_labels'] + [column for column in df_candidate.columns if column in features]
     ]
@@ -148,7 +148,7 @@ if __name__ == '__main__':
             params=config['model'][event_type],
             train_set=train_dataset,
             valid_sets=[val_dataset],
-            num_boost_round=config['fit']['boosting_rounds'],
+            num_boost_round=config['fit'][event_type]['boosting_rounds'],
             callbacks=[
                 lgb.log_evaluation(50),
             ]
