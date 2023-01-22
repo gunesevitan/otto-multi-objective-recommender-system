@@ -1,13 +1,13 @@
 dataset:
-  event_type: click
-  precomputed: False
+  event_type: order
   click:
     negative_sampling_ratio: 0.15
     features: [
-      candidates, candidate_scores,
+      candidate_scores,
       session_candidate_count, session_candidate_score_mean, session_candidate_score_std,
       session_candidate_score_min, session_candidate_score_max,
-      session_candidate_occurrence_count,
+      session_candidate_occurrence_count, session_candidate_click_occurrence_count,
+      session_candidate_cart_occurrence_count, session_candidate_order_occurrence_count,
       aid_type_mean, aid_hour_mean, aid_hour_std, aid_day_of_week_mean, aid_day_of_week_std,
       aid_ts_ratio, aid_session_recency_weight_mean,
       aid_is_session_start_mean, aid_is_session_end_mean,
@@ -15,33 +15,45 @@ dataset:
       aid_click_is_session_end_mean, aid_cart_is_session_end_mean, aid_order_is_session_end_mean,
       aid_click_last_week_occurrence_ratio, aid_cart_last_week_occurrence_ratio, aid_order_last_week_occurrence_ratio,
       session_count, session_aid_nunique, session_ts_ratio, session_type_mean,
-      session_hour_mean, session_day_of_week_mean, session_day_of_week_last,
+      session_hour_mean, session_day_of_week_mean, session_day_of_week_last
     ]
     target: candidate_labels
     categorical_features: []
   cart:
     negative_sampling_ratio: 0.15
     features: [
-      candidates, candidate_scores,
-      aid_count, aid_session_nunique, aid_type_mean,
-      aid_hour_mean, aid_hour_std, aid_day_of_week_mean, aid_day_of_week_std, aid_ts_ratio,
-      aid_click_count, aid_cart_count, aid_order_count,
-      click_last_week_occurrence_ratio, cart_last_week_occurrence_ratio, order_last_week_occurrence_ratio,
-      session_count, session_type_mean, session_hour_mean, session_day_of_week_mean,
-      session_click_aid_nunique, session_cart_aid_nunique, session_order_aid_nunique,
+      candidate_scores,
+      session_candidate_count, session_candidate_score_mean, session_candidate_score_std,
+      session_candidate_score_min, session_candidate_score_max,
+      session_candidate_occurrence_count, session_candidate_click_occurrence_count,
+      session_candidate_cart_occurrence_count, session_candidate_order_occurrence_count,
+      aid_type_mean, aid_hour_mean, aid_hour_std, aid_day_of_week_mean, aid_day_of_week_std,
+      aid_ts_ratio, aid_session_recency_weight_mean,
+      aid_is_session_start_mean, aid_is_session_end_mean,
+      aid_click_ratio, aid_cart_ratio, aid_order_ratio,
+      aid_click_is_session_end_mean, aid_cart_is_session_end_mean, aid_order_is_session_end_mean,
+      aid_click_last_week_occurrence_ratio, aid_cart_last_week_occurrence_ratio, aid_order_last_week_occurrence_ratio,
+      session_count, session_aid_nunique, session_ts_ratio, session_type_mean,
+      session_hour_mean, session_day_of_week_mean, session_day_of_week_last
     ]
     target: candidate_labels
     categorical_features: []
   order:
     negative_sampling_ratio: 0.15
     features: [
-      candidates, candidate_scores,
-      aid_count, aid_session_nunique, aid_type_mean,
-      aid_hour_mean, aid_hour_std, aid_day_of_week_mean, aid_day_of_week_std, aid_ts_ratio,
-      aid_click_count, aid_cart_count, aid_order_count,
-      click_last_week_occurrence_ratio, cart_last_week_occurrence_ratio, order_last_week_occurrence_ratio,
-      session_count, session_type_mean, session_hour_mean, session_day_of_week_mean,
-      session_click_aid_nunique, session_cart_aid_nunique, session_order_aid_nunique
+      candidate_scores,
+      session_candidate_count, session_candidate_score_mean, session_candidate_score_std,
+      session_candidate_score_min, session_candidate_score_max,
+      session_candidate_occurrence_count, session_candidate_click_occurrence_count,
+      session_candidate_cart_occurrence_count, session_candidate_order_occurrence_count,
+      aid_type_mean, aid_hour_mean, aid_hour_std, aid_day_of_week_mean, aid_day_of_week_std,
+      aid_ts_ratio, aid_session_recency_weight_mean,
+      aid_is_session_start_mean, aid_is_session_end_mean,
+      aid_click_ratio, aid_cart_ratio, aid_order_ratio,
+      aid_click_is_session_end_mean, aid_cart_is_session_end_mean, aid_order_is_session_end_mean,
+      aid_click_last_week_occurrence_ratio, aid_cart_last_week_occurrence_ratio, aid_order_last_week_occurrence_ratio,
+      session_count, session_aid_nunique, session_ts_ratio, session_type_mean,
+      session_hour_mean, session_day_of_week_mean, session_day_of_week_last
     ]
     target: candidate_labels
     categorical_features: []
@@ -73,13 +85,13 @@ model:
     verbose: 1
     n_jobs: -1
   cart:
-    num_leaves: 64
+    num_leaves: 128
     learning_rate: 0.05
-    bagging_fraction: 0.7
+    bagging_fraction: 0.8
     bagging_freq: 1
     feature_fraction: 0.9
     feature_fraction_bynode: 0.9
-    min_data_in_leaf: 200
+    min_data_in_leaf: 2000
     min_gain_to_split: 0.00001
     lambda_l1: 0.
     lambda_l2: 0.
@@ -88,7 +100,7 @@ model:
     boost_from_average: True
     objective: lambdarank
     metric: mean_average_precision
-    eval_at: [ 20, 50, 100 ]
+    eval_at: [20, 50, 100]
     seed: 42
     feature_fraction_seed: 42
     bagging_seed: 42
@@ -98,13 +110,13 @@ model:
     verbose: 1
     n_jobs: -1
   order:
-    num_leaves: 64
+    num_leaves: 128
     learning_rate: 0.05
-    bagging_fraction: 0.7
+    bagging_fraction: 0.8
     bagging_freq: 1
     feature_fraction: 0.9
     feature_fraction_bynode: 0.9
-    min_data_in_leaf: 200
+    min_data_in_leaf: 2000
     min_gain_to_split: 0.00001
     lambda_l1: 0.
     lambda_l2: 0.
@@ -113,7 +125,7 @@ model:
     boost_from_average: True
     objective: lambdarank
     metric: mean_average_precision
-    eval_at: [ 20, 50, 100 ]
+    eval_at: [20, 50, 100]
     seed: 42
     feature_fraction_seed: 42
     bagging_seed: 42
@@ -124,8 +136,12 @@ model:
     n_jobs: -1
 
 fit:
-  boosting_rounds: 500
-  log_evaluation: 100
+  click:
+    boosting_rounds: 500
+  cart:
+    boosting_rounds: 300
+  order:
+    boosting_rounds: 300
 
 persistence:
   save_models: True
