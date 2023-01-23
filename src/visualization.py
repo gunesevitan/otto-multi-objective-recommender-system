@@ -210,6 +210,47 @@ def visualize_feature_importance(df_feature_importance, path=None):
         plt.close(fig)
 
 
+def visualize_predictions(train_predictions, test_predictions, path=None):
+
+    """
+    Visualize train and test predictions histograms
+
+    Parameters
+    ----------
+    train_predictions: numpy.ndarray of shape (n_predictions)
+        Array of train predictions
+
+    test_predictions: numpy.ndarray of shape (n_predictions)
+        Array of test predictions
+
+    path: path-like str or None
+        Path of the output file or None (if path is None, plot is displayed with selected backend)
+    """
+
+    fig, ax = plt.subplots(figsize=(24, 8), dpi=100)
+    ax.hist(train_predictions, label='train', alpha=0.5,  bins=50)
+    ax.hist(test_predictions, label='test', alpha=0.5, bins=50)
+    ax.tick_params(axis='x', labelsize=12.5)
+    ax.tick_params(axis='y', labelsize=12.5)
+    ax.set_xlabel('')
+    ax.set_ylabel('')
+    ax.legend(prop={'size': 15})
+    title = f'''
+        Predictions
+        Mean - Train: {train_predictions.mean():.2f} |  Test: {test_predictions.mean():.2f}
+        Std - Train: {train_predictions.std():.2f} |  Test: {test_predictions.std():.2f}
+        Min - Train: {train_predictions.min():.2f} |  Test: {test_predictions.min():.2f}
+        Max - Train: {train_predictions.max():.2f} |  Test: {test_predictions.max():.2f}
+        '''
+    ax.set_title(title, size=20, pad=12.5)
+
+    if path is None:
+        plt.show()
+    else:
+        plt.savefig(path, bbox_inches='tight')
+        plt.close(fig)
+
+
 if __name__ == '__main__':
 
     df_train = pd.read_pickle(settings.DATA / 'train.pkl')
