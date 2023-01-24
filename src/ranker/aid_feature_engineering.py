@@ -44,7 +44,6 @@ if __name__ == '__main__':
     df['datetime'] = pd.to_datetime(df['ts'] + (2 * 60 * 60), unit='s')
     df['hour'] = df['datetime'].dt.hour.astype(np.uint8)
     df['day_of_week'] = df['datetime'].dt.dayofweek.astype(np.uint8)
-    df['is_weekend'] = (df['day_of_week'] > 4).astype(np.uint8)
     df['day_of_year'] = df['datetime'].dt.dayofyear.astype(np.uint16)
     df['week_of_year'] = df['datetime'].dt.isocalendar().week.astype(np.uint8)
     df['session_idx'] = (df.groupby('session')['aid'].cumcount() + 1).astype(np.uint16)
@@ -60,7 +59,6 @@ if __name__ == '__main__':
         'ts': ['max', 'min'],
         'hour': ['mean', 'std'],
         'day_of_week': ['mean', 'std'],
-        'is_weekend': 'mean',
         'day_of_year': 'nunique',
         'session_recency_weight': 'mean',
         'is_session_start': ['mean', 'count'],
@@ -71,26 +69,28 @@ if __name__ == '__main__':
     df_aid_features.columns = 'aid_' + df_aid_features.columns.map('_'.join).str.strip('_')
     df_aid_features = df_aid_features.rename(columns={'aid_aid': 'aid', 'aid_aid_count': 'aid_count'})
 
-    df_aid_features['aid_ts_difference'] = (df_aid_features['aid_ts_max'] - df_aid_features['aid_ts_min']).astype(np.uint32)
+    df_aid_features['aid_count_rank_pct'] = df_aid_features['aid_count'].rank(pct=True).astype(np.float32)
+    df_aid_features['aid_session_nunique_rank_pct'] = df_aid_features['aid_session_nunique'].rank(pct=True).astype(np.float32)
+    df_aid_features['aid_day_of_year_nunique_rank_pct'] = df_aid_features['aid_day_of_year_nunique'].rank(pct=True).astype(np.float32)
+    df_aid_features['aid_is_session_start_count_rank_pct'] = df_aid_features['aid_is_session_start_count'].rank(pct=True).astype(np.float32)
+    df_aid_features['aid_is_session_end_count_rank_pct'] = df_aid_features['aid_is_session_end_count'].rank(pct=True).astype(np.float32)
     df_aid_features['aid_ts_ratio'] = (df_aid_features['aid_ts_max'] / df_aid_features['aid_ts_min']).astype(np.float32)
-    df_aid_features.drop(columns=['aid_ts_min', 'aid_ts_max'], inplace=True)
+    df_aid_features.drop(columns=[
+        'aid_session_nunique', 'aid_day_of_year_nunique',
+        'aid_is_session_start_count', 'aid_is_session_end_count',
+        'aid_ts_min', 'aid_ts_max',
+    ], inplace=True)
     logging.info('Created additional features')
 
     df_aid_features['aid'] = df_aid_features['aid'].astype(np.int32)
-    df_aid_features['aid_count'] = df_aid_features['aid_count'].astype(np.uint32)
-    df_aid_features['aid_session_nunique'] = df_aid_features['aid_session_nunique'].astype(np.uint32)
     df_aid_features['aid_type_mean'] = df_aid_features['aid_type_mean'].astype(np.float32)
     df_aid_features['aid_hour_mean'] = df_aid_features['aid_hour_mean'].astype(np.float32)
     df_aid_features['aid_hour_std'] = df_aid_features['aid_hour_std'].astype(np.float32)
     df_aid_features['aid_day_of_week_mean'] = df_aid_features['aid_day_of_week_mean'].astype(np.float32)
     df_aid_features['aid_day_of_week_std'] = df_aid_features['aid_day_of_week_std'].astype(np.float32)
-    df_aid_features['aid_is_weekend_mean'] = df_aid_features['aid_is_weekend_mean'].astype(np.float32)
-    df_aid_features['aid_day_of_year_nunique'] = df_aid_features['aid_day_of_year_nunique'].astype(np.uint8)
     df_aid_features['aid_session_recency_weight_mean'] = df_aid_features['aid_session_recency_weight_mean'].astype(np.float32)
     df_aid_features['aid_is_session_start_mean'] = df_aid_features['aid_is_session_start_mean'].astype(np.float32)
-    df_aid_features['aid_is_session_start_count'] = df_aid_features['aid_is_session_start_count'].astype(np.uint64)
     df_aid_features['aid_is_session_end_mean'] = df_aid_features['aid_is_session_end_mean'].astype(np.float32)
-    df_aid_features['aid_is_session_end_count'] = df_aid_features['aid_is_session_end_count'].astype(np.uint64)
     logging.info('Down-casted features')
 
     for event_type_value, event_type in enumerate(['click', 'cart', 'order']):
@@ -101,9 +101,8 @@ if __name__ == '__main__':
             'ts': ['max', 'min'],
             'hour': ['mean', 'std'],
             'day_of_week': ['mean', 'std'],
-            'is_weekend': 'mean',
             'day_of_year': 'nunique',
-            'session_recency_weight': ['mean'],
+            'session_recency_weight': 'mean',
             'is_session_start': ['mean', 'count'],
             'is_session_end': ['mean', 'count'],
         })
@@ -112,12 +111,18 @@ if __name__ == '__main__':
         df_aid_type_features.columns = f'aid_{event_type}_' + df_aid_type_features.columns.map('_'.join).str.strip('_')
         df_aid_type_features = df_aid_type_features.rename(columns={f'aid_{event_type}_aid_count': f'aid_{event_type}_count'})
 
-        df_aid_type_features[f'aid_{event_type}_ts_difference'] = (df_aid_type_features[f'aid_{event_type}_ts_max'] - df_aid_type_features[f'aid_{event_type}_ts_min']).astype(np.uint32)
+        df_aid_type_features[f'aid_{event_type}_count_rank_pct'] = df_aid_type_features[f'aid_{event_type}_count'].rank(pct=True).astype(np.float32)
+        df_aid_type_features[f'aid_{event_type}_session_nunique_rank_pct'] = df_aid_type_features[f'aid_{event_type}_session_nunique'].rank(pct=True).astype(np.float32)
+        df_aid_type_features[f'aid_{event_type}_day_of_year_nunique_rank_pct'] = df_aid_type_features[f'aid_{event_type}_day_of_year_nunique'].rank(pct=True).astype(np.float32)
+        df_aid_type_features[f'aid_{event_type}_is_session_start_count_rank_pct'] = df_aid_type_features[f'aid_{event_type}_is_session_start_count'].rank(pct=True).astype(np.float32)
+        df_aid_type_features[f'aid_{event_type}_is_session_end_count_rank_pct'] = df_aid_type_features[f'aid_{event_type}_is_session_end_count'].rank(pct=True).astype(np.float32)
         df_aid_type_features[f'aid_{event_type}_ts_ratio'] = (df_aid_type_features[f'aid_{event_type}_ts_max'] / df_aid_type_features[f'aid_{event_type}_ts_min']).astype(np.float32)
         logging.info(f'Created aid {event_type} additional features')
-        df_aid_type_features.drop(columns=[f'aid_{event_type}_ts_min', f'aid_{event_type}_ts_max'], inplace=True)
-
-        df_aid_type_features[f'aid_{event_type}_count'] = df_aid_type_features[f'aid_{event_type}_count'].fillna(0).astype(np.uint32)
+        df_aid_type_features.drop(columns=[
+            f'aid_{event_type}_session_nunique', f'aid_{event_type}_day_of_year_nunique',
+            f'aid_{event_type}_is_session_start_count', f'aid_{event_type}_is_session_end_count',
+            f'aid_{event_type}_ts_min', f'aid_{event_type}_ts_max'
+        ], inplace=True)
         logging.info(f'Down-casted {event_type} features')
 
         for column in df_aid_type_features.columns:
