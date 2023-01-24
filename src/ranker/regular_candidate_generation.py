@@ -335,25 +335,25 @@ if __name__ == '__main__':
             cart_order_covisited_aids = list(itertools.chain(*[top_cart_order_covisitation[aid] for aid in session_unique_click_and_cart_aids if aid in top_cart_order_covisitation]))
 
             # Get most similar aids of the last aid in the session
-            fasttext_nearest_neighbor_idx = annoy_index.get_nns_by_item(i=aid_idx[session_aids[-1]], n=46, search_k=-1, include_distances=False)
+            fasttext_nearest_neighbor_idx = annoy_index.get_nns_by_item(i=aid_idx[session_aids[-1]], n=51, search_k=-1, include_distances=False)
             fasttext_similar_aids = [idx_aid[idx] for idx in fasttext_nearest_neighbor_idx[1:]]
 
             # Concatenate all generated click aids and select most common ones
             covisited_click_aids = time_weighted_covisited_aids + click_weighted_covisited_aids + cart_weighted_covisited_aids + click_cart_covisited_aids + cart_order_covisited_aids + fasttext_similar_aids
             sorted_click_aids = [(aid, weight) for aid, weight in Counter(covisited_click_aids).most_common(100) if aid not in session_unique_aids]
-            sorted_click_aid_weights = ([0] * len(session_unique_aids)) + [weight for _, weight in sorted_click_aids]
+            sorted_click_aid_weights = np.arange(1, len(session_unique_aids) + 1).tolist()[::-1] + [weight for _, weight in sorted_click_aids]
             sorted_click_aids = [aid for aid, _ in sorted_click_aids]
 
             # Concatenate all generated cart aids and select most common ones
             covisited_cart_aids = time_weighted_covisited_aids + cart_weighted_covisited_aids + cart_order_covisited_aids + fasttext_similar_aids
             sorted_cart_aids = [(aid, weight) for aid, weight in Counter(covisited_cart_aids).most_common(100) if aid not in session_unique_aids]
-            sorted_cart_aid_weights = ([0] * len(session_unique_aids)) + [weight for _, weight in sorted_cart_aids]
+            sorted_cart_aid_weights = np.arange(1, len(session_unique_aids) + 1).tolist()[::-1] + [weight for _, weight in sorted_cart_aids]
             sorted_cart_aids = [aid for aid, _ in sorted_cart_aids]
 
             # Concatenate all generated order aids and select most common ones
             covisited_order_aids = time_weighted_covisited_aids + cart_weighted_covisited_aids + cart_order_covisited_aids + fasttext_similar_aids
             sorted_order_aids = [(aid, weight) for aid, weight in Counter(covisited_order_aids).most_common(100) if aid not in session_unique_aids]
-            sorted_order_aid_weights = ([0] * len(session_unique_aids)) + [weight for _, weight in sorted_order_aids]
+            sorted_order_aid_weights = np.arange(1, len(session_unique_aids) + 1).tolist()[::-1] + [weight for _, weight in sorted_order_aids]
             sorted_order_aids = [aid for aid, _ in sorted_order_aids]
 
             click_predictions = session_unique_aids + sorted_click_aids
