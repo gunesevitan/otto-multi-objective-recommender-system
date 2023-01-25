@@ -46,10 +46,12 @@ if __name__ == '__main__':
     df['day_of_week'] = df['datetime'].dt.dayofweek.astype(np.uint8)
     df['day_of_year'] = df['datetime'].dt.dayofyear.astype(np.uint16)
     df['week_of_year'] = df['datetime'].dt.isocalendar().week.astype(np.uint8)
-    df['session_idx'] = (df.groupby('session')['aid'].cumcount() + 1).astype(np.uint16)
-    df['session_recency_weight'] = df['session_idx'] / df.groupby('session')['session'].transform('count')
-    df['is_session_start'] = (df['session_idx'] == 1).astype(np.uint8)
-    df['is_session_end'] = (df['session_recency_weight'] == 1).astype(np.uint8)
+    df['session_cumcount'] = (df.groupby('session')['aid'].cumcount() + 1).astype(np.uint16)
+    df['session_cumcount_normalized'] = df['session_cumcount'] / df.groupby('session')['session'].transform('count')
+    df['is_session_start'] = (df['session_cumcount'] == 1).astype(np.uint8)
+    df['is_session_end'] = (df['session_cumcount_normalized'] == 1).astype(np.uint8)
+    df['type+1'] = (df['type'] + 1).astype(np.uint8)
+    df['session_type+1_cumsum'] = df.groupby('session')['type+1'].cumsum()
     logging.info('Created datetime features')
 
     df_aid_features = df.groupby('aid').agg({
@@ -60,9 +62,10 @@ if __name__ == '__main__':
         'hour': ['mean', 'std'],
         'day_of_week': ['mean', 'std'],
         'day_of_year': 'nunique',
-        'session_recency_weight': 'mean',
+        'session_cumcount_normalized': 'mean',
         'is_session_start': ['mean', 'count'],
         'is_session_end': ['mean', 'count'],
+        'session_type+1_cumsum': 'mean'
     }).reset_index()
     logging.info('Created aid aggregation features')
 
@@ -88,9 +91,10 @@ if __name__ == '__main__':
     df_aid_features['aid_hour_std'] = df_aid_features['aid_hour_std'].astype(np.float32)
     df_aid_features['aid_day_of_week_mean'] = df_aid_features['aid_day_of_week_mean'].astype(np.float32)
     df_aid_features['aid_day_of_week_std'] = df_aid_features['aid_day_of_week_std'].astype(np.float32)
-    df_aid_features['aid_session_recency_weight_mean'] = df_aid_features['aid_session_recency_weight_mean'].astype(np.float32)
+    df_aid_features['aid_session_cumcount_normalized_mean'] = df_aid_features['aid_session_cumcount_normalized_mean'].astype(np.float32)
     df_aid_features['aid_is_session_start_mean'] = df_aid_features['aid_is_session_start_mean'].astype(np.float32)
     df_aid_features['aid_is_session_end_mean'] = df_aid_features['aid_is_session_end_mean'].astype(np.float32)
+    df_aid_features['aid_session_type+1_cumsum_mean'] = df_aid_features['aid_session_type+1_cumsum_mean'].astype(np.float32)
     logging.info('Down-casted features')
 
     for event_type_value, event_type in enumerate(['click', 'cart', 'order']):
@@ -102,7 +106,7 @@ if __name__ == '__main__':
             'hour': ['mean', 'std'],
             'day_of_week': ['mean', 'std'],
             'day_of_year': 'nunique',
-            'session_recency_weight': 'mean',
+            'session_cumcount_normalized': 'mean',
             'is_session_start': ['mean', 'count'],
             'is_session_end': ['mean', 'count'],
         })
@@ -110,6 +114,7 @@ if __name__ == '__main__':
 
         df_aid_type_features.columns = f'aid_{event_type}_' + df_aid_type_features.columns.map('_'.join).str.strip('_')
         df_aid_type_features = df_aid_type_features.rename(columns={f'aid_{event_type}_aid_count': f'aid_{event_type}_count'})
+        df_aid_type_features = df_aid_type_features.reset_index()
 
         df_aid_type_features[f'aid_{event_type}_count_rank_pct'] = df_aid_type_features[f'aid_{event_type}_count'].rank(pct=True).astype(np.float32)
         df_aid_type_features[f'aid_{event_type}_session_nunique_rank_pct'] = df_aid_type_features[f'aid_{event_type}_session_nunique'].rank(pct=True).astype(np.float32)
@@ -125,13 +130,80 @@ if __name__ == '__main__':
         ], inplace=True)
         logging.info(f'Down-casted {event_type} features')
 
-        for column in df_aid_type_features.columns:
-            df_aid_features[column] = df_aid_features['aid'].map(df_aid_type_features[column]).astype(np.float32)
+        df_aid_features = df_aid_features.merge(df_aid_type_features.astype(np.float32), on='aid', how='left')
+        del df_aid_type_features
 
     df_aid_features['aid_click_ratio'] = (df_aid_features['aid_click_count'] / df_aid_features['aid_count']).astype(np.float32)
     df_aid_features['aid_cart_ratio'] = (df_aid_features['aid_cart_count'] / df_aid_features['aid_count']).astype(np.float32)
     df_aid_features['aid_order_ratio'] = (df_aid_features['aid_order_count'] / df_aid_features['aid_count']).astype(np.float32)
     logging.info(f'Created additional event features')
+
+    df_last_week = df.loc[df['week_of_year'] == df['week_of_year'].max()].reset_index(drop=True)
+    df_aid_last_week_features = df_last_week.groupby('aid').agg({
+        'aid': 'count',
+        'session': 'nunique',
+        'type': 'mean',
+        'ts': ['max', 'min'],
+        'hour': ['mean', 'std'],
+        'day_of_week': ['mean', 'std'],
+        'day_of_year': 'nunique',
+        'session_cumcount_normalized': 'mean',
+        'is_session_start': ['mean', 'count'],
+        'is_session_end': ['mean', 'count'],
+        'session_type+1_cumsum': 'mean'
+    })
+    logging.info(f'Created aid last week aggregation features')
+    df_aid_last_week_features.columns = f'aid_last_week_' + df_aid_last_week_features.columns.map('_'.join).str.strip('_')
+    df_aid_last_week_features = df_aid_last_week_features.rename(columns={'aid_last_week_aid_count': 'aid_last_week_count'})
+    df_aid_last_week_features = df_aid_last_week_features.reset_index()
+
+    df_aid_last_week_features['aid_last_week_count_rank_pct'] = df_aid_last_week_features['aid_last_week_count'].rank(pct=True).astype(np.float32)
+    df_aid_last_week_features['aid_last_week_session_nunique_rank_pct'] = df_aid_last_week_features['aid_last_week_session_nunique'].rank(pct=True).astype(np.float32)
+    df_aid_last_week_features['aid_last_week_day_of_year_nunique_rank_pct'] = df_aid_last_week_features['aid_last_week_day_of_year_nunique'].rank(pct=True).astype(np.float32)
+    df_aid_last_week_features['aid_last_week_is_session_start_count_rank_pct'] = df_aid_last_week_features['aid_last_week_is_session_start_count'].rank(pct=True).astype(np.float32)
+    df_aid_last_week_features['aid_last_week_is_session_end_count_rank_pct'] = df_aid_last_week_features['aid_last_week_is_session_end_count'].rank(pct=True).astype(np.float32)
+    df_aid_last_week_features['aid_last_week_ts_ratio'] = (df_aid_last_week_features['aid_last_week_ts_max'] / df_aid_last_week_features['aid_last_week_ts_min']).astype(np.float32)
+    logging.info('Created additional last week features')
+
+    df_aid_features = df_aid_features.merge(df_aid_last_week_features.astype(np.float32), on='aid', how='left')
+    del df_aid_last_week_features
+    logging.info('Merged aid last week features')
+
+    last_seven_days = sorted(df['day_of_year'].unique())[-7:]
+    for nth, last_nth_day in enumerate(last_seven_days):
+
+        nth = 7 - nth
+
+        df_last_nth_day = df.loc[df['day_of_year'] == last_nth_day].reset_index(drop=True)
+        df_aid_last_nth_day_features = df_last_nth_day.groupby('aid').agg({
+            'aid': 'count',
+            'session': 'nunique',
+            'type': 'mean',
+            'ts': ['max', 'min'],
+            'hour': ['mean', 'std'],
+            'day_of_week': ['mean', 'std'],
+            'day_of_year': 'nunique',
+            'session_cumcount_normalized': 'mean',
+            'is_session_start': ['mean', 'count'],
+            'is_session_end': ['mean', 'count'],
+            'session_type+1_cumsum': 'mean'
+        })
+        logging.info(f'Created aid {nth} day aggregation features')
+        df_aid_last_nth_day_features.columns = f'aid_last_{nth}_day_' + df_aid_last_nth_day_features.columns.map('_'.join).str.strip('_')
+        df_aid_last_nth_day_features = df_aid_last_nth_day_features.rename(columns={f'aid_last_{nth}_day_aid_count': f'aid_last_{nth}_day_count'})
+        df_aid_last_nth_day_features = df_aid_last_nth_day_features.reset_index()
+
+        df_aid_last_nth_day_features[f'aid_last_{nth}_day_count_rank_pct'] = df_aid_last_nth_day_features[f'aid_last_{nth}_day_count'].rank(pct=True).astype(np.float32)
+        df_aid_last_nth_day_features[f'aid_last_{nth}_day_session_nunique_rank_pct'] = df_aid_last_nth_day_features[f'aid_last_{nth}_day_session_nunique'].rank(pct=True).astype(np.float32)
+        df_aid_last_nth_day_features[f'aid_last_{nth}_day_day_of_year_nunique_rank_pct'] = df_aid_last_nth_day_features[f'aid_last_{nth}_day_day_of_year_nunique'].rank(pct=True).astype(np.float32)
+        df_aid_last_nth_day_features[f'aid_last_{nth}_day_is_session_start_count_rank_pct'] = df_aid_last_nth_day_features[f'aid_last_{nth}_day_is_session_start_count'].rank(pct=True).astype(np.float32)
+        df_aid_last_nth_day_features[f'aid_last_{nth}_day_is_session_end_count_rank_pct'] = df_aid_last_nth_day_features[f'aid_last_{nth}_day_is_session_end_count'].rank(pct=True).astype(np.float32)
+        df_aid_last_nth_day_features[f'aid_last_{nth}_day_ts_ratio'] = (df_aid_last_nth_day_features[f'aid_last_{nth}_day_ts_max'] / df_aid_last_nth_day_features[f'aid_last_{nth}_day_ts_min']).astype(np.float32)
+        logging.info(f'Created additional last {nth} day features')
+
+        df_aid_features = df_aid_features.merge(df_aid_last_nth_day_features.astype(np.float32), on='aid', how='left')
+        del df_aid_last_nth_day_features
+        logging.info(f'Merged aid last {nth} day features')
 
     group_ids = pd.MultiIndex.from_product([df['aid'].unique(), df['week_of_year'].unique(), [0, 1, 2]], names=['aid', 'week_of_year', 'type'])
     aid_counts = df.groupby(['aid', 'week_of_year', 'type'])['session'].count().rename('count')
