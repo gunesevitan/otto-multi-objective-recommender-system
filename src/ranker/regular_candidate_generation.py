@@ -154,7 +154,7 @@ if __name__ == '__main__':
             cart_order_covisited_aids = list(itertools.chain(*[top_cart_order_covisitation[aid] for aid in session_unique_click_and_cart_aids if aid in top_cart_order_covisitation]))
 
             # Get most similar aids of the last aid in the session
-            fasttext_nearest_neighbor_idx = annoy_index.get_nns_by_item(i=aid_idx[session_aids[-1]], n=51, search_k=-1, include_distances=False)
+            fasttext_nearest_neighbor_idx = annoy_index.get_nns_by_item(i=aid_idx[session_aids[-1]], n=21, search_k=-1, include_distances=False)
             fasttext_similar_aids = [idx_aid[idx] for idx in fasttext_nearest_neighbor_idx[1:]]
 
             # Concatenate all generated click aids and select most common ones
