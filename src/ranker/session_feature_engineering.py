@@ -37,7 +37,6 @@ if __name__ == '__main__':
     else:
         raise ValueError('Invalid mode')
 
-
     df_aid_features = df_aid_features.loc[:, [
         'aid', 'aid_count', 'aid_type_mean', 'aid_hour_mean', 'aid_session_nunique_rank_pct',
         'aid_last_week_count', 'aid_last_week_session_nunique', 'aid_last_week_count_rank_pct',
