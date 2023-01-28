@@ -49,32 +49,68 @@ if __name__ == '__main__':
         else:
             raise ValueError('Invalid mode')
 
+        df = df.filter(df['session'].is_in(df_candidate['session']))
         df = df.sort(by=['session', 'ts'], reverse=[False, False])
         logging.info(f'Dataset Shape: {df.shape} - Memory Usage: {df.estimated_size() / 1024 ** 2:.2f} MB')
 
-        df_candidate = df_candidate.join(df_candidate.groupby('session').agg([
-            pl.col('candidates').count().alias('session_candidate_count').cast(pl.UInt16),
-            pl.col('candidate_scores').mean().alias('session_candidate_score_mean'),
-            pl.col('candidate_scores').std().alias('session_candidate_score_std'),
-            pl.col('candidate_scores').min().alias('session_candidate_score_min'),
-            pl.col('candidate_scores').max().alias('session_candidate_score_max'),
-        ]), on='session', how='left')
+        df_cumulative = df.groupby(['session']).agg([
+            pl.col('aid').cumcount().alias('session_aid_cumcount').cast(pl.UInt16)
+        ]).explode(['session_aid_cumcount']).sort(by=['session', 'session_aid_cumcount'])
+        df_cumulative = df_cumulative.with_columns(pl.col('session_aid_cumcount') + 1)
+        df = pl.concat([df, df_cumulative[['session_aid_cumcount']]], how='horizontal')
+        del df_cumulative
+        df = df.join(df.groupby(['session', 'aid']).agg([
+            pl.col('session_aid_cumcount').last().alias('session_candidate_cumcount_last').cast(pl.UInt16),
+        ]), on=['session', 'aid'], how='left')
 
         df = df.join(df.groupby(['session', 'aid']).agg(pl.col('aid').count().alias('session_candidate_occurrence_count')), on=['session', 'aid'], how='left')
-        df = df.join(df.groupby(['session', 'aid', 'type']).agg(pl.col('aid').count().alias('session_candidate_type_count')), on=['session', 'aid', 'type'], how='left')
+        df = df.join(df.groupby(['session', 'aid', 'type']).agg(pl.col('aid').count().alias('session_candidate_type_occurrence_count')), on=['session', 'aid', 'type'], how='left')
         df = df.sort(by=['session', 'ts'], reverse=[False, False])
 
-        df_candidate = df_candidate.join(df[['session', 'aid', 'session_candidate_occurrence_count']].rename({
+        df_candidate = df_candidate.join(df[[
+            'session', 'aid', 'session_candidate_occurrence_count',
+            'session_candidate_cumcount_last'
+        ]].rename({
             'aid': 'candidates'
         }), on=['session', 'candidates'], how='left')
         df_candidate = df_candidate.with_column(pl.col(f'session_candidate_occurrence_count').fill_null(0).cast(pl.UInt16))
 
         for event_type_value, event_type in enumerate(['click', 'cart', 'order']):
             df_candidate = df_candidate.join(df.filter(df['type'] == event_type_value).rename({
-                'aid': 'candidates', 'session_candidate_type_count': f'session_candidate_{event_type}_occurrence_count'
+                'aid': 'candidates',
+                'session_candidate_type_occurrence_count': f'session_candidate_{event_type}_occurrence_count',
             })['session', 'candidates', f'session_candidate_{event_type}_occurrence_count'], on=['session', 'candidates'], how='left')
             df_candidate = df_candidate.with_column(pl.col(f'session_candidate_{event_type}_occurrence_count').fill_null(0).cast(pl.UInt16))
             df_candidate = df_candidate.unique()
+
+        df_candidate_session_features = df_candidate.groupby('session').agg([
+            pl.col('candidate_scores').mean().alias('session_candidate_score_mean').cast(pl.Float32),
+            pl.col('candidate_scores').std().alias('session_candidate_score_std').cast(pl.Float32),
+            pl.col('candidate_scores').min().alias('session_candidate_score_min').cast(pl.Float32),
+            pl.col('candidate_scores').max().alias('session_candidate_score_max').cast(pl.Float32),
+            pl.col('session_candidate_occurrence_count').mean().alias('session_candidate_occurrence_count_mean').cast(pl.Float32),
+            pl.col('session_candidate_occurrence_count').sum().alias('session_candidate_occurrence_count_sum').cast(pl.UInt32),
+            pl.col('session_candidate_occurrence_count').max().alias('session_candidate_occurrence_count_max').cast(pl.UInt16),
+            pl.col('session_candidate_cumcount_last').mean().alias('session_candidate_cumcount_last_mean').cast(pl.Float32),
+            pl.col('session_candidate_cumcount_last').sum().alias('session_candidate_cumcount_last_sum').cast(pl.UInt32),
+            pl.col('session_candidate_cumcount_last').max().alias('session_candidate_cumcount_last_max').cast(pl.UInt16),
+        ])
+        df_candidate = df_candidate.join(df_candidate_session_features, on='session', how='left')
+        del df_candidate_session_features
+
+        df_candidate_aid_features = df_candidate.groupby('candidates').agg([
+            pl.col('candidate_scores').mean().alias('aid_candidate_score_mean').cast(pl.Float32),
+            pl.col('candidate_scores').std().alias('aid_candidate_score_std').cast(pl.Float32),
+            pl.col('candidate_scores').max().alias('aid_candidate_score_max').cast(pl.Float32),
+            pl.col('session_candidate_occurrence_count').mean().alias('aid_session_candidate_occurrence_count_mean').cast(pl.Float32),
+            pl.col('session_candidate_occurrence_count').sum().alias('aid_session_candidate_occurrence_count_sum').cast(pl.UInt32),
+            pl.col('session_candidate_occurrence_count').max().alias('aid_session_candidate_occurrence_count_max').cast(pl.UInt16),
+            pl.col('session_candidate_cumcount_last').mean().alias('aid_session_candidate_cumcount_last_mean').cast(pl.Float32),
+            pl.col('session_candidate_cumcount_last').sum().alias('aid_session_candidate_cumcount_last_sum').cast(pl.UInt32),
+            pl.col('session_candidate_cumcount_last').max().alias('aid_session_candidate_cumcount_last_max').cast(pl.UInt16),
+        ])
+        df_candidate = df_candidate.join(df_candidate_aid_features, on='candidates', how='left')
+        del df_candidate_aid_features
 
         if args.mode == 'validation':
             df_candidate.to_pandas().to_pickle(feature_engineering_directory / f'train_{dataset_event_type}_interaction_features.pkl')
