@@ -120,10 +120,12 @@ if __name__ == '__main__':
         df_session_type_features = df_session_type_features.rename(columns={f'session_{event_type}_session_count': f'session_{event_type}_count'})
         df_session_type_features = df_session_type_features.reset_index()
 
-        df_session_type_features[f'session_{event_type}_ts_difference'] = (df_session_type_features[f'session_{event_type}_ts_max'] - df_session_type_features[f'session_{event_type}_ts_min']).astype(np.uint32)
+        df_session_type_features[f'session_{event_type}_count_rank_pct'] = df_session_type_features[f'session_{event_type}_count'].rank(pct=True).astype(np.float32)
+        df_session_type_features[f'session_{event_type}_aid_nunique_rank_pct'] = df_session_type_features[f'session_{event_type}_aid_nunique'].rank(pct=True).astype(np.float32)
         df_session_type_features[f'session_{event_type}_ts_ratio'] = (df_session_type_features[f'session_{event_type}_ts_max'] / df_session_type_features[f'session_{event_type}_ts_min']).astype(np.float32)
-        logging.info(f'Created session {event_type} additional features')
+        df_session_type_features[f'session_{event_type}_unique_ratio'] = (df_session_type_features[f'session_{event_type}_aid_nunique'] / df_session_type_features[f'session_{event_type}_count']).astype(np.float32)
         df_session_type_features.drop(columns=[f'session_{event_type}_ts_min', f'session_{event_type}_ts_max'], inplace=True)
+        logging.info('Created additional features')
 
         df_session_type_features[f'session_{event_type}_count'] = df_session_type_features[f'session_{event_type}_count'].fillna(0).astype(np.uint32)
         logging.info(f'Down-casted {event_type} features')
