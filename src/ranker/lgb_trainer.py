@@ -23,6 +23,7 @@ if __name__ == '__main__':
     target = config['dataset'][event_type]['target']
 
     df_candidate = pl.from_pandas(pd.read_pickle(settings.DATA / 'feature_engineering' / f'train_{event_type}_interaction_features.pkl'))
+    df_candidate = df_candidate.with_columns([pl.col('session').cast(pl.Int32), pl.col('candidates').cast(pl.Int32)])
     df_candidate = df_candidate[
         ['candidates', 'session', 'candidate_labels'] + [column for column in df_candidate.columns if column in features]
     ]
@@ -99,7 +100,13 @@ if __name__ == '__main__':
         index=features,
         columns=folds
     )
+    df_feature_importance_split = pd.DataFrame(
+        data=np.zeros((len(features), n_splits)),
+        index=features,
+        columns=folds
+    )
     df_candidate = df_candidate.with_column(pl.lit(0).alias('predictions').cast(pl.Float32))
+    df_candidate = df_candidate.join(df_candidate.groupby('session').agg(pl.col(target).cast(pl.UInt16).sum().alias('session_target_sum')), on='session', how='left')
 
     for fold in folds:
 
@@ -107,7 +114,9 @@ if __name__ == '__main__':
         val_idx = np.where(df_candidate[fold] == 1)[0]
 
         # Index negatives in training set and sample from them
-        train_negative_labels = df_candidate[target].to_pandas().loc[train_idx & (df_candidate[target].to_pandas() == 0)]
+        train_negative_labels = df_candidate[target].to_pandas().loc[
+            train_idx & (df_candidate[target].to_pandas() == 0) & (df_candidate['session_target_sum'].to_pandas() > 0)
+        ]
         negative_idx = train_negative_labels.sample(frac=config['dataset'][event_type]['negative_sampling_ratio'], random_state=42).index.to_numpy()
         del train_negative_labels
         # Combine train positive index and sampled negative index
@@ -151,6 +160,7 @@ if __name__ == '__main__':
             num_boost_round=config['fit'][event_type]['boosting_rounds'],
             callbacks=[
                 lgb.log_evaluation(50),
+                lgb.early_stopping(config['fit'][event_type]['early_stopping_rounds'])
             ]
         )
         del train_dataset, val_dataset
@@ -165,9 +175,11 @@ if __name__ == '__main__':
             logging.info(f'model_{event_type}_{fold}.lgb is saved to {model_directory}')
 
         df_feature_importance_gain[fold] = model.feature_importance(importance_type='gain')
+        df_feature_importance_split[fold] = model.feature_importance(importance_type='split')
 
         # Predict validation dataset and retrieve top 20 predictions with the highest score for every session
         df_candidate[val_idx, 'predictions'] = np.float32(model.predict(df_candidate[val_idx, features].to_pandas()))
+        del model
         df_val_predictions = df_candidate[
             val_idx, ['session', 'candidates', 'predictions']
         ].sort(by=['session', 'predictions'], reverse=[False, True])[[
@@ -184,15 +196,79 @@ if __name__ == '__main__':
 
     oof_recall = df_validation['hits'].sum() / df_validation[f'{event_type}_labels'].apply(len).clip(0, 20).sum()
     logging.info(f'OOF - Event: {event_type} - Recall@20: {oof_recall:.6f}')
-
-    # Visualize calculated model feature importance
-    df_feature_importance_gain['mean'] = df_feature_importance_gain[folds].mean(axis=1)
-    df_feature_importance_gain['std'] = df_feature_importance_gain[folds].std(axis=1)
-    df_feature_importance_gain.sort_values(by='mean', ascending=False, inplace=True)
+    del df_validation
 
     if config['persistence']['visualize_feature_importance']:
-        visualization.visualize_feature_importance(
-            df_feature_importance=df_feature_importance_gain,
-            path=model_directory / f'{event_type}_feature_importance_gain.png'
-        )
-        logging.info(f'Saved {event_type}_feature_importance_gain.png to {model_directory}')
+        for importance_type, df_feature_importance in zip(['gain', 'split'], [df_feature_importance_gain, df_feature_importance_split]):
+            # Visualize calculated model feature importance
+            df_feature_importance['mean'] = df_feature_importance[folds].mean(axis=1)
+            df_feature_importance['std'] = df_feature_importance[folds].std(axis=1)
+            df_feature_importance.sort_values(by='mean', ascending=False, inplace=True)
+
+            visualization.visualize_feature_importance(
+                df_feature_importance=df_feature_importance,
+                path=model_directory / f'feature_importance_{importance_type}_{event_type}.png'
+            )
+            logging.info(f'Saved feature_importance_{importance_type}_{event_type}.png to {model_directory}')
+
+    if config['persistence']['save_val_predictions']:
+        df_candidate = df_candidate['session', 'candidates', 'predictions'].to_pandas()
+        df_candidate.to_pickle(model_directory / f'val_predictions_{event_type}.pkl')
+        logging.info(f'Saved val_predictions_{event_type}.pkl to {model_directory}')
+
+    train_predictions = df_candidate['predictions'].to_numpy()
+    del df_candidate
+
+    if config['persistence']['save_test_predictions']:
+
+        df_candidate = pl.from_pandas(pd.read_pickle(settings.DATA / 'feature_engineering' / f'test_{event_type}_interaction_features.pkl'))
+        df_candidate = df_candidate[
+            ['candidates', 'session'] + [column for column in df_candidate.columns if column in features]
+        ]
+        df_candidate = df_candidate.unique()
+        df_candidate = df_candidate.sort('session')
+        logging.info(f'Candidate Dataset Shape: {df_candidate.shape} - Memory Usage: {df_candidate.estimated_size() / 1024 ** 2:.2f} MB')
+
+        # Load and merge aid features that are used on training
+        df_aid_features = pl.from_pandas(pd.read_pickle(settings.DATA / 'feature_engineering' / 'train_and_test_aid_features.pkl'))
+        aid_merge_columns = [column for column in df_aid_features.columns if column in features]
+        if len(aid_merge_columns) > 0:
+            df_candidate = df_candidate.join(df_aid_features.rename({'aid': 'candidates'})[['candidates'] + aid_merge_columns], how='left', on='candidates')
+        del df_aid_features
+        logging.info(f'Candidate Dataset + aid Features Shape: {df_candidate.shape} - Memory Usage: {df_candidate.estimated_size() / 1024 ** 2:.2f} MB')
+
+        # Load and merge session features that are used on training
+        df_session_features = pl.from_pandas(pd.read_pickle(settings.DATA / 'feature_engineering' / 'test_session_features.pkl'))
+        session_merge_columns = [column for column in df_session_features.columns if column in features]
+        if len(session_merge_columns) > 0:
+            df_candidate = df_candidate.join(df_session_features[['session'] + session_merge_columns], how='left', on='session')
+        del df_session_features
+        logging.info(f'Candidate Dataset + session Features Shape: {df_candidate.shape} - Memory Usage: {df_candidate.estimated_size() / 1024 ** 2:.2f} MB')
+
+        test_predictions = np.zeros(df_candidate.shape[0])
+        chunk_size = test_predictions.shape[0] // 20
+        chunks = range((test_predictions.shape[0] // chunk_size) + 1)
+
+        for fold in folds:
+
+            model = lgb.Booster(model_file=model_directory / f'model_{event_type}_{fold}.lgb')
+
+            for chunk_idx in chunks:
+
+                chunk_start = chunk_idx * chunk_size
+                chunk_end = (chunk_idx + 1) * chunk_size
+
+                test_predictions[chunk_start:chunk_end] += (np.float32(model.predict(df_candidate[chunk_start:chunk_end, features].to_pandas())) / len(folds))
+
+        df_candidate = df_candidate.with_column(pl.Series(name='predictions', values=test_predictions))
+        df_candidate = df_candidate['session', 'candidates', 'predictions'].to_pandas()
+        df_candidate.to_pickle(model_directory / f'test_predictions_{event_type}.pkl')
+        logging.info(f'Saved test_predictions_{event_type}.pkl to {model_directory}')
+
+        if config['persistence']['visualize_predictions']:
+            visualization.visualize_predictions(
+                train_predictions=train_predictions,
+                test_predictions=test_predictions,
+                path=model_directory / f'predictions_{event_type}.png'
+            )
+            logging.info(f'Saved predictions_{event_type}.png to {model_directory}')
