@@ -43,6 +43,11 @@ def read_predictions(predictions_file_paths, predictions_column, output_column, 
     if 'candidates' in df_predictions.columns:
         df_predictions = df_predictions.rename({'candidates': 'aid'})
 
+    df_predictions = df_predictions.with_columns([
+        pl.col('session').cast(pl.Int32),
+        pl.col('aid').cast(pl.Int32)
+    ])
+
     df_predictions = df_predictions.sort(by=['session', predictions_column], reverse=[False, True]).rename({
         predictions_column: output_column,
     })[['session', 'aid', output_column]]
@@ -58,19 +63,22 @@ if __name__ == '__main__':
 
     weights = {
         'click': {
-            'tetsuro_lightgbm_click': 0.75,
-            'gunes_lightgbm_click': 0.125,
-            'gunes_xgboost_click': 0.125
+            'tetsuro_lightgbm_click': 0.70,
+            'anil_lightgbm_click': 0.20,
+            'gunes_lightgbm_click': 0.05,
+            'gunes_xgboost_click': 0.05,
         },
         'cart': {
-            'tetsuro_lightgbm_cart': 0.1,
-            'tetsuro_lightgbm_stack_cart': 0.8,
+            'tetsuro_lightgbm_cart': 0.05,
+            'tetsuro_lightgbm_stack_cart': 0.70,
+            'anil_lightgbm_cart': 0.15,
             'gunes_lightgbm_cart': 0.05,
             'gunes_xgboost_cart': 0.05
         },
         'order': {
             'tetsuro_lightgbm_order': 0.05,
-            'tetsuro_lightgbm_stack_order': 0.85,
+            'tetsuro_lightgbm_stack_order': 0.75,
+            'anil_lightgbm_order': 0.10,
             'gunes_lightgbm_order': 0.05,
             'gunes_xgboost_order': 0.05,
         }
@@ -121,6 +129,16 @@ if __name__ == '__main__':
         )
         logging.info(f'Tetsuro LightGBM Click Predictions Shape: {df_tetsuro_lightgbm_click_predictions.shape} - Memory Usage: {df_tetsuro_lightgbm_click_predictions.estimated_size() / 1024 ** 2:.2f} MB')
 
+        df_anil_lightgbm_click_predictions = read_predictions(
+            predictions_file_paths=[settings.MODELS / 'anil' / 'local_clicks_soft_scores.parquet'],
+            predictions_column='pred',
+            output_column='anil_lightgbm_click_predictions',
+            scale=True,
+            file_format='parquet'
+        )
+        holdout_sessions = df_anil_lightgbm_click_predictions['session'].unique().to_numpy().tolist()
+        logging.info(f'Anil LightGBM Click Predictions Shape: {df_anil_lightgbm_click_predictions.shape} - Memory Usage: {df_anil_lightgbm_click_predictions.estimated_size() / 1024 ** 2:.2f} MB')
+
         df_gunes_lightgbm_click_predictions = read_predictions(
             predictions_file_paths=[settings.MODELS / 'lightgbm' / 'val_predictions_click.pkl'],
             predictions_column='predictions',
@@ -141,14 +159,17 @@ if __name__ == '__main__':
 
         df_click_predictions = df_gunes_lightgbm_click_predictions.join(df_gunes_xgboost_click_predictions, how='left', on=['session', 'aid'])
         df_click_predictions = df_click_predictions.join(df_tetsuro_lightgbm_click_predictions, on=['session', 'aid'], how='outer')
+        df_click_predictions = df_click_predictions.join(df_anil_lightgbm_click_predictions, on=['session', 'aid'], how='outer')
         df_click_predictions = df_click_predictions.fill_null(0)
-        del df_gunes_lightgbm_click_predictions, df_gunes_xgboost_click_predictions, df_tetsuro_lightgbm_click_predictions
+        del df_gunes_lightgbm_click_predictions, df_gunes_xgboost_click_predictions
+        del df_tetsuro_lightgbm_click_predictions, df_anil_lightgbm_click_predictions
 
         df_click_predictions = df_click_predictions.with_columns(
             (
                     pl.col('gunes_lightgbm_click_predictions') * weights['click']['gunes_lightgbm_click'] +
                     pl.col('gunes_xgboost_click_predictions') * weights['click']['gunes_xgboost_click'] +
-                    pl.col('tetsuro_lightgbm_click_predictions') * weights['click']['tetsuro_lightgbm_click']
+                    pl.col('tetsuro_lightgbm_click_predictions') * weights['click']['tetsuro_lightgbm_click'] +
+                    pl.col('anil_lightgbm_click_predictions') * weights['click']['anil_lightgbm_click']
             ).alias('predictions')
         )['session', 'aid', 'predictions']
         df_click_predictions = df_click_predictions.sort(by=['session', 'predictions'], reverse=[False, True])
@@ -156,6 +177,7 @@ if __name__ == '__main__':
         df_validation.loc[df_click_predictions.index, 'click_predictions'] = df_click_predictions.values.reshape(-1)
         df_validation['click_hits'] = pl.DataFrame(df_validation[['click_predictions', 'click_labels']]).apply(lambda x: len(set(x[0]).intersection(set(x[1])))).to_pandas().values.reshape(-1)
         click_recall = df_validation['click_hits'].sum() / df_validation[f'click_labels'].apply(len).clip(0, 20).sum()
+        click_holdout_recall = df_validation.loc[holdout_sessions, 'click_hits'].sum() / df_validation.loc[holdout_sessions, f'click_labels'].apply(len).clip(0, 20).sum()
 
         df_tetsuro_lightgbm_cart_predictions = read_predictions(
             predictions_file_paths=[settings.MODELS / 'tetsuro' / 'oof_lgbm_carts.parquet'],
@@ -174,6 +196,15 @@ if __name__ == '__main__':
             file_format='parquet'
         )
         logging.info(f'Tetsuro LightGBM Stack Cart Predictions Shape: {df_tetsuro_lightgbm_stack_cart_predictions.shape} - Memory Usage: {df_tetsuro_lightgbm_stack_cart_predictions.estimated_size() / 1024 ** 2:.2f} MB')
+
+        df_anil_lightgbm_cart_predictions = read_predictions(
+            predictions_file_paths=[settings.MODELS / 'anil' / 'local_carts_soft_scores.parquet'],
+            predictions_column='pred',
+            output_column='anil_lightgbm_cart_predictions',
+            scale=True,
+            file_format='parquet'
+        )
+        logging.info(f'Anil LightGBM Cart Predictions Shape: {df_anil_lightgbm_cart_predictions.shape} - Memory Usage: {df_anil_lightgbm_cart_predictions.estimated_size() / 1024 ** 2:.2f} MB')
 
         df_gunes_lightgbm_cart_predictions = read_predictions(
             predictions_file_paths=[settings.MODELS / 'lightgbm' / 'val_predictions_cart.pkl'],
@@ -196,16 +227,19 @@ if __name__ == '__main__':
         df_cart_predictions = df_gunes_lightgbm_cart_predictions.join(df_gunes_xgboost_cart_predictions, how='left', on=['session', 'aid'])
         df_cart_predictions = df_cart_predictions.join(df_tetsuro_lightgbm_cart_predictions, on=['session', 'aid'], how='outer')
         df_cart_predictions = df_cart_predictions.join(df_tetsuro_lightgbm_stack_cart_predictions, on=['session', 'aid'], how='outer')
+        df_cart_predictions = df_cart_predictions.join(df_anil_lightgbm_cart_predictions, on=['session', 'aid'], how='outer')
         df_cart_predictions = df_cart_predictions.fill_null(0)
         del df_gunes_lightgbm_cart_predictions, df_gunes_xgboost_cart_predictions
         del df_tetsuro_lightgbm_cart_predictions, df_tetsuro_lightgbm_stack_cart_predictions
+        del df_anil_lightgbm_cart_predictions
 
         df_cart_predictions = df_cart_predictions.with_columns(
             (
                     pl.col('gunes_lightgbm_cart_predictions') * weights['cart']['gunes_lightgbm_cart'] +
                     pl.col('gunes_xgboost_cart_predictions') * weights['cart']['gunes_xgboost_cart'] +
                     pl.col('tetsuro_lightgbm_cart_predictions') * weights['cart']['tetsuro_lightgbm_cart'] +
-                    pl.col('tetsuro_lightgbm_stack_cart_predictions') * weights['cart']['tetsuro_lightgbm_stack_cart']
+                    pl.col('tetsuro_lightgbm_stack_cart_predictions') * weights['cart']['tetsuro_lightgbm_stack_cart'] +
+                    pl.col('anil_lightgbm_cart_predictions') * weights['cart']['anil_lightgbm_cart']
             ).alias('predictions')
         )['session', 'aid', 'predictions']
         df_cart_predictions = df_cart_predictions.sort(by=['session', 'predictions'], reverse=[False, True])
@@ -213,6 +247,7 @@ if __name__ == '__main__':
         df_validation.loc[df_cart_predictions.index, 'cart_predictions'] = df_cart_predictions.values.reshape(-1)
         df_validation['cart_hits'] = pl.DataFrame(df_validation[['cart_predictions', 'cart_labels']]).apply(lambda x: len(set(x[0]).intersection(set(x[1])))).to_pandas().values.reshape(-1)
         cart_recall = df_validation['cart_hits'].sum() / df_validation[f'cart_labels'].apply(len).clip(0, 20).sum()
+        cart_holdout_recall = df_validation.loc[holdout_sessions, 'cart_hits'].sum() / df_validation.loc[holdout_sessions, f'cart_labels'].apply(len).clip(0, 20).sum()
 
         df_tetsuro_lightgbm_order_predictions = read_predictions(
             predictions_file_paths=[settings.MODELS / 'tetsuro' / 'oof_lgbm_orders.parquet'],
@@ -231,6 +266,15 @@ if __name__ == '__main__':
             file_format='parquet'
         )
         logging.info(f'Tetsuro LightGBM Stack Order Predictions Shape: {df_tetsuro_lightgbm_stack_order_predictions.shape} - Memory Usage: {df_tetsuro_lightgbm_stack_order_predictions.estimated_size() / 1024 ** 2:.2f} MB')
+
+        df_anil_lightgbm_order_predictions = read_predictions(
+            predictions_file_paths=[settings.MODELS / 'anil' / 'local_orders_soft_scores.parquet'],
+            predictions_column='pred',
+            output_column='anil_lightgbm_order_predictions',
+            scale=True,
+            file_format='parquet'
+        )
+        logging.info(f'Anil LightGBM Order Predictions Shape: {df_anil_lightgbm_order_predictions.shape} - Memory Usage: {df_anil_lightgbm_order_predictions.estimated_size() / 1024 ** 2:.2f} MB')
 
         df_gunes_lightgbm_order_predictions = read_predictions(
             predictions_file_paths=[settings.MODELS / 'lightgbm' / 'val_predictions_order.pkl'],
@@ -253,15 +297,18 @@ if __name__ == '__main__':
         df_order_predictions = df_gunes_lightgbm_order_predictions.join(df_gunes_xgboost_order_predictions, how='left', on=['session', 'aid'])
         df_order_predictions = df_order_predictions.join(df_tetsuro_lightgbm_order_predictions, on=['session', 'aid'], how='outer')
         df_order_predictions = df_order_predictions.join(df_tetsuro_lightgbm_stack_order_predictions, on=['session', 'aid'], how='outer')
+        df_order_predictions = df_order_predictions.join(df_anil_lightgbm_order_predictions, on=['session', 'aid'], how='outer')
         df_order_predictions = df_order_predictions.fill_null(0)
-        del df_gunes_lightgbm_order_predictions, df_gunes_xgboost_order_predictions, df_tetsuro_lightgbm_order_predictions
+        del df_gunes_lightgbm_order_predictions, df_gunes_xgboost_order_predictions
+        del df_tetsuro_lightgbm_order_predictions, df_anil_lightgbm_order_predictions
 
         df_order_predictions = df_order_predictions.with_columns(
             (
                     pl.col('gunes_lightgbm_order_predictions') * weights['order']['gunes_lightgbm_order'] +
                     pl.col('gunes_xgboost_order_predictions') * weights['order']['gunes_xgboost_order'] +
                     pl.col('tetsuro_lightgbm_order_predictions') * weights['order']['tetsuro_lightgbm_order'] +
-                    pl.col('tetsuro_lightgbm_stack_order_predictions') * weights['order']['tetsuro_lightgbm_stack_order']
+                    pl.col('tetsuro_lightgbm_stack_order_predictions') * weights['order']['tetsuro_lightgbm_stack_order'] +
+                    pl.col('anil_lightgbm_order_predictions') * weights['order']['anil_lightgbm_order']
             ).alias('predictions')
         )['session', 'aid', 'predictions']
         df_order_predictions = df_order_predictions.sort(by=['session', 'predictions'], reverse=[False, True])
@@ -269,15 +316,23 @@ if __name__ == '__main__':
         df_validation.loc[df_order_predictions.index, 'order_predictions'] = df_order_predictions.values.reshape(-1)
         df_validation['order_hits'] = pl.DataFrame(df_validation[['order_predictions', 'order_labels']]).apply(lambda x: len(set(x[0]).intersection(set(x[1])))).to_pandas().values.reshape(-1)
         order_recall = df_validation['order_hits'].sum() / df_validation[f'order_labels'].apply(len).clip(0, 20).sum()
+        order_holdout_recall = df_validation.loc[holdout_sessions, 'order_hits'].sum() / df_validation.loc[holdout_sessions, f'order_labels'].apply(len).clip(0, 20).sum()
+
         weighted_recall = (click_recall * 0.1) + (cart_recall * 0.3) + (order_recall * 0.6)
+        weighted_holdout_recall = (click_holdout_recall * 0.1) + (cart_holdout_recall * 0.3) + (order_holdout_recall * 0.6)
 
         logging.info(
             f'''
-            Validation scores
+            OOF scores
             clicks - recall@20: {click_recall:.6f}
             carts - recall@20: {cart_recall:.6f}
             orders - recall@20: {order_recall:.6f}
             weighted recall@20: {weighted_recall:.6f}
+            Holdout scores
+            clicks - recall@20: {click_holdout_recall:.6f}
+            carts - recall@20: {cart_holdout_recall:.6f}
+            orders - recall@20: {order_holdout_recall:.6f}
+            weighted recall@20: {weighted_holdout_recall:.6f}
             '''
         )
 
@@ -301,6 +356,15 @@ if __name__ == '__main__':
         )
         logging.info(f'Tetsuro LightGBM Click Predictions Shape: {df_tetsuro_lightgbm_click_predictions.shape} - Memory Usage: {df_tetsuro_lightgbm_click_predictions.estimated_size() / 1024 ** 2:.2f} MB')
 
+        df_anil_lightgbm_click_predictions = read_predictions(
+            predictions_file_paths=[settings.MODELS / 'anil' / 'kaggle_clicks_soft_scores.parquet'],
+            predictions_column='pred',
+            output_column='anil_lightgbm_click_predictions',
+            scale=True,
+            file_format='parquet'
+        )
+        logging.info(f'Anil LightGBM Click Predictions Shape: {df_anil_lightgbm_click_predictions.shape} - Memory Usage: {df_anil_lightgbm_click_predictions.estimated_size() / 1024 ** 2:.2f} MB')
+
         df_gunes_lightgbm_click_predictions = read_predictions(
             predictions_file_paths=[settings.MODELS / 'lightgbm' / 'test_predictions_click.pkl'],
             predictions_column='predictions',
@@ -321,15 +385,18 @@ if __name__ == '__main__':
 
         df_click_predictions = df_gunes_lightgbm_click_predictions.join(df_gunes_xgboost_click_predictions, how='left', on=['session', 'aid'])
         df_click_predictions = df_click_predictions.join(df_tetsuro_lightgbm_click_predictions, on=['session', 'aid'], how='outer')
+        df_click_predictions = df_click_predictions.join(df_anil_lightgbm_click_predictions, on=['session', 'aid'], how='outer')
         df_click_predictions = df_click_predictions.fill_null(0)
-        del df_gunes_lightgbm_click_predictions, df_gunes_xgboost_click_predictions, df_tetsuro_lightgbm_click_predictions
+        del df_gunes_lightgbm_click_predictions, df_gunes_xgboost_click_predictions
+        del df_tetsuro_lightgbm_click_predictions, df_anil_lightgbm_click_predictions
         logging.info(f'Merged Click Predictions Shape: {df_click_predictions.shape} - Memory Usage: {df_click_predictions.estimated_size() / 1024 ** 2:.2f} MB')
 
         df_click_predictions = df_click_predictions.with_columns(
             (
                     pl.col('gunes_lightgbm_click_predictions') * weights['click']['gunes_lightgbm_click'] +
                     pl.col('gunes_xgboost_click_predictions') * weights['click']['gunes_xgboost_click'] +
-                    pl.col('tetsuro_lightgbm_click_predictions') * weights['click']['tetsuro_lightgbm_click']
+                    pl.col('tetsuro_lightgbm_click_predictions') * weights['click']['tetsuro_lightgbm_click'] +
+                    pl.col('anil_lightgbm_click_predictions') * weights['click']['anil_lightgbm_click']
             ).alias('predictions')
         )['session', 'aid', 'predictions']
         df_click_predictions = df_click_predictions.sort(by=['session', 'predictions'], reverse=[False, True])
@@ -367,6 +434,15 @@ if __name__ == '__main__':
         )
         logging.info(f'Tetsuro LightGBM Stack Cart Predictions Shape: {df_tetsuro_lightgbm_stack_cart_predictions.shape} - Memory Usage: {df_tetsuro_lightgbm_stack_cart_predictions.estimated_size() / 1024 ** 2:.2f} MB')
 
+        df_anil_lightgbm_cart_predictions = read_predictions(
+            predictions_file_paths=[settings.MODELS / 'anil' / 'kaggle_carts_soft_scores.parquet'],
+            predictions_column='pred',
+            output_column='anil_lightgbm_cart_predictions',
+            scale=True,
+            file_format='parquet'
+        )
+        logging.info(f'Anil LightGBM Cart Predictions Shape: {df_anil_lightgbm_cart_predictions.shape} - Memory Usage: {df_anil_lightgbm_cart_predictions.estimated_size() / 1024 ** 2:.2f} MB')
+
         df_gunes_lightgbm_cart_predictions = read_predictions(
             predictions_file_paths=[settings.MODELS / 'lightgbm' / 'test_predictions_cart.pkl'],
             predictions_column='predictions',
@@ -388,9 +464,11 @@ if __name__ == '__main__':
         df_cart_predictions = df_gunes_lightgbm_cart_predictions.join(df_gunes_xgboost_cart_predictions, how='left', on=['session', 'aid'])
         df_cart_predictions = df_cart_predictions.join(df_tetsuro_lightgbm_cart_predictions, on=['session', 'aid'], how='outer')
         df_cart_predictions = df_cart_predictions.join(df_tetsuro_lightgbm_stack_cart_predictions, on=['session', 'aid'], how='outer')
+        df_cart_predictions = df_cart_predictions.join(df_anil_lightgbm_cart_predictions, on=['session', 'aid'], how='outer')
         df_cart_predictions = df_cart_predictions.fill_null(0)
         del df_gunes_lightgbm_cart_predictions, df_gunes_xgboost_cart_predictions
         del df_tetsuro_lightgbm_cart_predictions, df_tetsuro_lightgbm_stack_cart_predictions
+        del df_anil_lightgbm_cart_predictions
         logging.info(f'Merged Cart Predictions Shape: {df_cart_predictions.shape} - Memory Usage: {df_cart_predictions.estimated_size() / 1024 ** 2:.2f} MB')
 
         df_cart_predictions = df_cart_predictions.with_columns(
@@ -398,7 +476,8 @@ if __name__ == '__main__':
                     pl.col('gunes_lightgbm_cart_predictions') * weights['cart']['gunes_lightgbm_cart'] +
                     pl.col('gunes_xgboost_cart_predictions') * weights['cart']['gunes_xgboost_cart'] +
                     pl.col('tetsuro_lightgbm_cart_predictions') * weights['cart']['tetsuro_lightgbm_cart'] +
-                    pl.col('tetsuro_lightgbm_stack_cart_predictions') * weights['cart']['tetsuro_lightgbm_stack_cart']
+                    pl.col('tetsuro_lightgbm_stack_cart_predictions') * weights['cart']['tetsuro_lightgbm_stack_cart'] +
+                    pl.col('anil_lightgbm_cart_predictions') * weights['cart']['anil_lightgbm_cart']
             ).alias('predictions')
         )['session', 'aid', 'predictions']
         df_cart_predictions = df_cart_predictions.sort(by=['session', 'predictions'], reverse=[False, True])
@@ -436,6 +515,15 @@ if __name__ == '__main__':
         )
         logging.info(f'Tetsuro LightGBM Stack Order Predictions Shape: {df_tetsuro_lightgbm_stack_order_predictions.shape} - Memory Usage: {df_tetsuro_lightgbm_stack_order_predictions.estimated_size() / 1024 ** 2:.2f} MB')
 
+        df_anil_lightgbm_order_predictions = read_predictions(
+            predictions_file_paths=[settings.MODELS / 'anil' / 'kaggle_orders_soft_scores.parquet'],
+            predictions_column='pred',
+            output_column='anil_lightgbm_order_predictions',
+            scale=True,
+            file_format='parquet'
+        )
+        logging.info(f'Anil LightGBM Order Predictions Shape: {df_anil_lightgbm_order_predictions.shape} - Memory Usage: {df_anil_lightgbm_order_predictions.estimated_size() / 1024 ** 2:.2f} MB')
+
         df_gunes_lightgbm_order_predictions = read_predictions(
             predictions_file_paths=[settings.MODELS / 'lightgbm' / 'test_predictions_order.pkl'],
             predictions_column='predictions',
@@ -457,16 +545,19 @@ if __name__ == '__main__':
         df_order_predictions = df_gunes_lightgbm_order_predictions.join(df_gunes_xgboost_order_predictions, how='left', on=['session', 'aid'])
         df_order_predictions = df_order_predictions.join(df_tetsuro_lightgbm_order_predictions, on=['session', 'aid'], how='outer')
         df_order_predictions = df_order_predictions.join(df_tetsuro_lightgbm_stack_order_predictions, on=['session', 'aid'], how='outer')
+        df_order_predictions = df_order_predictions.join(df_anil_lightgbm_order_predictions, on=['session', 'aid'], how='outer')
         df_order_predictions = df_order_predictions.fill_null(0)
         del df_gunes_lightgbm_order_predictions, df_gunes_xgboost_order_predictions
         del df_tetsuro_lightgbm_order_predictions, df_tetsuro_lightgbm_stack_order_predictions
+        del df_anil_lightgbm_order_predictions
         logging.info(f'Merged Order Predictions Shape: {df_order_predictions.shape} - Memory Usage: {df_order_predictions.estimated_size() / 1024 ** 2:.2f} MB')
         df_order_predictions = df_order_predictions.with_columns(
             (
                     pl.col('gunes_lightgbm_order_predictions') * weights['order']['gunes_lightgbm_order'] +
                     pl.col('gunes_xgboost_order_predictions') * weights['order']['gunes_xgboost_order'] +
                     pl.col('tetsuro_lightgbm_order_predictions') * weights['order']['tetsuro_lightgbm_order'] +
-                    pl.col('tetsuro_lightgbm_stack_order_predictions') * weights['order']['tetsuro_lightgbm_stack_order']
+                    pl.col('tetsuro_lightgbm_stack_order_predictions') * weights['order']['tetsuro_lightgbm_stack_order'] +
+                    pl.col('anil_lightgbm_order_predictions') * weights['order']['anil_lightgbm_order']
             ).alias('predictions')
         )['session', 'aid', 'predictions']
         df_order_predictions = df_order_predictions.sort(by=['session', 'predictions'], reverse=[False, True])
